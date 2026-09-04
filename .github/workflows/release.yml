@@ -1,0 +1,76 @@
+name: Release Build
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (e.g. v1.0.0-alpha)'
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+
+    steps:
+      - name: Checkout main branch
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Set up QEMU and binfmt-support (for multi-arch build)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Extract Version Tag
+        id: get_version
+        run: |
+          RAW_TAG="${{ github.event.release.tag_name || github.event.inputs.version || github.ref_name }}"
+          # Strip leading 'v' if present (e.g. v1.0.0-alpha -> 1.0.0-alpha)
+          VERSION="${RAW_TAG#v}"
+          echo "VERSION=${VERSION}" >> $GITHUB_OUTPUT
+          echo "Building katusaOS version: ${VERSION} for ${{ matrix.arch }}"
+
+      - name: Build katusaOS Image via Docker
+        run: |
+          # Build builder image
+          docker build -t katusaos-builder:latest -f docker/Dockerfile.builder docker/
+
+          # Build disk image (set size to 1950MB to fit within GitHub Release 2GB asset limit)
+          docker run --rm --privileged \
+            -v "${PWD}:/workspace" \
+            -e DEBIAN_FRONTEND=noninteractive \
+            -e IMAGE_SIZE_MB=1950 \
+            katusaos-builder:latest \
+            /workspace/scripts/build-image.sh ${{ matrix.arch }}
+
+      - name: Rename and Prepare Release Artifacts
+        id: prepare_artifact
+        run: |
+          VERSION="${{ steps.get_version.outputs.VERSION }}"
+          ARCH="${{ matrix.arch }}"
+          TARGET_IMG="output/katusaOS-${VERSION}-${ARCH}.img"
+          mv "output/katusaOS-${ARCH}.img" "${TARGET_IMG}"
+
+          echo "Created artifact: ${TARGET_IMG}"
+          ls -lh output/
+
+          echo "img_path=${TARGET_IMG}" >> $GITHUB_OUTPUT
+
+      - name: Upload Image to GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: github.event_name == 'release'
+        with:
+          files: |
+            ${{ steps.prepare_artifact.outputs.img_path }}
+            output/vmlinuz-${{ matrix.arch }}
+            output/initrd-${{ matrix.arch }}.img
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
