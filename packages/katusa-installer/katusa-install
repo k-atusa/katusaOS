@@ -271,6 +271,14 @@ menuentry 'katusaOS (Fallback Recovery)' {{
     with open(f"{mount_dir}/boot/grub/grub.cfg", "w") as f:
         f.write(grub_cfg)
 
+    # Also write to ESP partition for maximum UEFI compatibility
+    os.makedirs(f"{mount_dir}/boot/efi/EFI/BOOT", exist_ok=True)
+    os.makedirs(f"{mount_dir}/boot/efi/boot/grub", exist_ok=True)
+    with open(f"{mount_dir}/boot/efi/EFI/BOOT/grub.cfg", "w") as f:
+        f.write(grub_cfg)
+    with open(f"{mount_dir}/boot/efi/boot/grub/grub.cfg", "w") as f:
+        f.write(grub_cfg)
+
     # Write hostname
     with open(f"{mount_dir}/etc/hostname", "w") as f:
         f.write(f"{hostname}\n")

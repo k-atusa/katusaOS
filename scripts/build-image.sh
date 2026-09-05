@@ -101,12 +101,20 @@ menuentry 'katusaOS (Fallback Recovery)' {
 }
 EOF
 
-# Step 4: Build standalone EFI bootloader binary
+# Step 4: Build standalone EFI bootloader binary with embedded early search config
+echo "[+] Generating early GRUB bootstrap config..."
+cat << 'EOF' > "${BUILD_DIR}/early-grub.cfg"
+search --no-floppy --set=root --label katusa-root
+set prefix=($root)/boot/grub
+configfile ($root)/boot/grub/grub.cfg
+EOF
+
 echo "[+] Generating GRUB EFI executable (${EFI_BINARY})..."
 grub-mkimage -O "${GRUB_TARGET}" \
+    -c "${BUILD_DIR}/early-grub.cfg" \
     -o "${BUILD_DIR}/${EFI_BINARY}" \
     -p "/boot/grub" \
-    fat ext2 part_gpt search search_fs_uuid search_label normal configfile linux test echo
+    fat ext2 iso9660 part_gpt part_msdos search search_fs_uuid search_label normal configfile linux test echo all_video efi_gop efitextmode loadenv reboot
 
 # Step 5: Build EFI System Partition (ESP) image
 ESP_SIZE_MB=64
@@ -117,7 +125,11 @@ mkfs.vfat -F32 -n "KATUSA-ESP" "${BUILD_DIR}/esp.img" > /dev/null
 
 mmd -i "${BUILD_DIR}/esp.img" ::EFI
 mmd -i "${BUILD_DIR}/esp.img" ::EFI/BOOT
+mmd -i "${BUILD_DIR}/esp.img" ::boot
+mmd -i "${BUILD_DIR}/esp.img" ::boot/grub
 mcopy -i "${BUILD_DIR}/esp.img" "${BUILD_DIR}/${EFI_BINARY}" "::EFI/BOOT/${EFI_BINARY}"
+mcopy -i "${BUILD_DIR}/esp.img" "${BUILD_DIR}/early-grub.cfg" "::EFI/BOOT/grub.cfg"
+mcopy -i "${BUILD_DIR}/esp.img" "${BUILD_DIR}/early-grub.cfg" "::boot/grub/grub.cfg"
 
 # Step 6: Build ext4 Root Filesystem partition image
 ROOT_SIZE_MB=$((IMAGE_SIZE_MB - ESP_SIZE_MB - 2))
