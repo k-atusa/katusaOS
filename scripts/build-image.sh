@@ -7,7 +7,7 @@ ARCH="${1:-amd64}"
 IMAGE_SIZE_MB="${IMAGE_SIZE_MB:-4096}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-OUTPUT_DIR="${REPO_ROOT}/output"
+OUTPUT_DIR="${OUTPUT_DIR:-${REPO_ROOT}/output}"
 
 # Use local container/system /tmp directory for building to avoid Docker virtiofs/9p nodev issues
 BUILD_DIR="${BUILD_DIR:-/tmp/katusa-build-${ARCH}}"
