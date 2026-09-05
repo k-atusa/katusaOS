@@ -1,7 +1,7 @@
 # katusaOS 🚀
 > **Dedicated Custom Linux Operating System for the Katusa Programming Club**
 
-![katusaOS Banner](https://img.shields.io/badge/katusaOS-v1.0.0--alpha-00ADB5?style=for-the-badge)
+![katusaOS Banner](https://img.shields.io/badge/katusaOS-v0.1.0--alpha-00ADB5?style=for-the-badge)
 ![Arch](https://img.shields.io/badge/Architecture-amd64%20%7C%20arm64-brightgreen?style=for-the-badge)
 ![Base](https://img.shields.io/badge/Base-Debian%2012%20(Bookworm)-E95420?style=for-the-badge)
 ![License](https://img.shields.io/badge/License-GPLv3-blue?style=for-the-badge)
