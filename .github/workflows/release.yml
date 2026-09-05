@@ -51,6 +51,9 @@ jobs:
             katusaos-builder:latest \
             /workspace/scripts/build-image.sh ${{ matrix.arch }}
 
+          # Fix file ownership from root (Docker) to runner user
+          sudo chown -R $(id -u):$(id -g) output/
+
       - name: Rename, Compress (XZ) and Generate Checksums
         id: prepare_artifact
         run: |
