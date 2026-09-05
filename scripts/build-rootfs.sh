@@ -271,10 +271,13 @@ chown -R katusa:katusa /home/katusa
 mkdir -p /etc/sudoers.d
 echo "%wheel ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/wheel
 chmod 0440 /etc/sudoers.d/wheel
+chmod 4755 /usr/bin/sudo 2>/dev/null || true
 
 # Configure SSH daemon
 mkdir -p /etc/ssh
 ssh-keygen -A 2>/dev/null || true
+chmod 600 /etc/ssh/ssh_host_*_key 2>/dev/null || true
+chmod 644 /etc/ssh/ssh_host_*_key.pub 2>/dev/null || true
 sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config 2>/dev/null || true
 sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config 2>/dev/null || true
 

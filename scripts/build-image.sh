@@ -87,16 +87,18 @@ set timeout=3
 insmod part_gpt
 insmod ext2
 insmod fat
+insmod iso9660
+insmod all_video
 
 menuentry 'katusaOS' {
     search --no-floppy --set=root --label katusa-root
-    linux /boot/vmlinuz-virt root=LABEL=katusa-root rw modules=ext4,virtio_pci,virtio_blk quiet
+    linux /boot/vmlinuz-virt root=LABEL=katusa-root rw modules=ext4,virtio_pci,virtio_blk,virtio_gpu console=tty0 console=${CONSOLE} quiet
     initrd /boot/initramfs-virt
 }
 
 menuentry 'katusaOS (Fallback Recovery)' {
     search --no-floppy --set=root --label katusa-root
-    linux /boot/vmlinuz-virt root=LABEL=katusa-root rw modules=ext4,virtio_pci,virtio_blk single
+    linux /boot/vmlinuz-virt root=LABEL=katusa-root rw modules=ext4,virtio_pci,virtio_blk,virtio_gpu console=tty0 console=${CONSOLE} single
     initrd /boot/initramfs-virt
 }
 EOF
@@ -155,14 +157,20 @@ dd if="${BUILD_DIR}/esp.img" of="${IMAGE_PATH}" bs=1M seek=1 conv=notrunc status
 dd if="${BUILD_DIR}/root.img" of="${IMAGE_PATH}" bs=1M seek=$((ESP_SIZE_MB + 1)) conv=notrunc status=none
 chmod 666 "${IMAGE_PATH}" 2>/dev/null || true
 
-# Step 8: Build Bootable UEFI Installer ISO for UTM
+# Step 8: Build Bootable UEFI Live & Installer ISO for UTM
 echo "[+] Generating bootable UEFI installer ISO (${ISO_PATH})..."
 ISO_ROOT="${BUILD_DIR}/iso_root"
 rm -rf "${ISO_ROOT}"
-mkdir -p "${ISO_ROOT}/boot/grub"
+mkdir -p "${ISO_ROOT}"
 
-cp -f "${VMLINUZ_FILE}" "${ISO_ROOT}/boot/vmlinuz-virt"
-cp -f "${INITRD_FILE}" "${ISO_ROOT}/boot/initramfs-virt"
+# Copy full rootfs into ISO root so installer and all tools are available in live mode
+echo "[+] Copying complete rootfs into ISO..."
+rsync -aHAX --exclude=/proc/* --exclude=/sys/* --exclude=/dev/* --exclude=/run/* --exclude=/tmp/* "${ROOTFS_DIR}/" "${ISO_ROOT}/"
+mkdir -p "${ISO_ROOT}/proc" "${ISO_ROOT}/sys" "${ISO_ROOT}/dev" "${ISO_ROOT}/run" "${ISO_ROOT}/tmp"
+chmod 1777 "${ISO_ROOT}/tmp"
+
+# Configure GRUB for ISO
+mkdir -p "${ISO_ROOT}/boot/grub" "${ISO_ROOT}/EFI/BOOT"
 cat << EOF > "${ISO_ROOT}/boot/grub/grub.cfg"
 set default=0
 set timeout=3
@@ -170,23 +178,50 @@ set timeout=3
 insmod part_gpt
 insmod fat
 insmod iso9660
+insmod all_video
 
-menuentry 'Install katusaOS' {
-    linux /boot/vmlinuz-virt root=LABEL=KATUSA_ISO rw modules=ext4,iso9660,virtio_pci,virtio_blk quiet
+menuentry 'Install katusaOS (Live Installer)' {
+    linux /boot/vmlinuz-virt root=LABEL=KATUSA_ISO overlaytmpfs=yes modules=ext4,isofs,virtio_pci,virtio_blk,virtio_gpu,overlay console=tty0 console=${CONSOLE} quiet
     initrd /boot/initramfs-virt
 }
 
 menuentry 'katusaOS (Live Mode)' {
-    linux /boot/vmlinuz-virt root=LABEL=KATUSA_ISO rw modules=ext4,iso9660,virtio_pci,virtio_blk quiet
+    linux /boot/vmlinuz-virt root=LABEL=KATUSA_ISO overlaytmpfs=yes modules=ext4,isofs,virtio_pci,virtio_blk,virtio_gpu,overlay console=tty0 console=${CONSOLE} quiet
+    initrd /boot/initramfs-virt
+}
+
+menuentry 'katusaOS (Debug Verbose Boot)' {
+    linux /boot/vmlinuz-virt root=LABEL=KATUSA_ISO overlaytmpfs=yes modules=ext4,isofs,virtio_pci,virtio_blk,virtio_gpu,overlay console=tty0 console=${CONSOLE}
     initrd /boot/initramfs-virt
 }
 EOF
+cp -f "${ISO_ROOT}/boot/grub/grub.cfg" "${ISO_ROOT}/EFI/BOOT/grub.cfg"
 
-# Copy efi.img into ISO
-cp -f "${BUILD_DIR}/esp.img" "${ISO_ROOT}/efi.img"
+# Build dedicated EFI bootloader for ISO
+cat << 'EOF' > "${BUILD_DIR}/early-iso.cfg"
+search --no-floppy --set=root --label KATUSA_ISO
+set prefix=($root)/boot/grub
+configfile ($root)/boot/grub/grub.cfg
+EOF
 
+grub-mkimage -O "${GRUB_TARGET}" \
+    -c "${BUILD_DIR}/early-iso.cfg" \
+    -o "${BUILD_DIR}/iso-${EFI_BINARY}" \
+    -p "/boot/grub" \
+    fat ext2 iso9660 part_gpt part_msdos search search_fs_uuid search_label normal configfile linux test echo all_video efi_gop efitextmode loadenv reboot
+
+# Create efi.img for ISO
+rm -f "${ISO_ROOT}/efi.img"
+dd if=/dev/zero of="${ISO_ROOT}/efi.img" bs=1M count=16 status=none
+mkfs.vfat "${ISO_ROOT}/efi.img" > /dev/null
+mmd -i "${ISO_ROOT}/efi.img" ::EFI
+mmd -i "${ISO_ROOT}/efi.img" ::EFI/BOOT
+mcopy -i "${ISO_ROOT}/efi.img" "${BUILD_DIR}/iso-${EFI_BINARY}" "::EFI/BOOT/${EFI_BINARY}"
+mcopy -i "${ISO_ROOT}/efi.img" "${BUILD_DIR}/early-iso.cfg" "::EFI/BOOT/grub.cfg"
+
+echo "[+] Mastering ISO with xorriso..."
 xorriso -as mkisofs \
-    -r \
+    -R \
     -V "KATUSA_ISO" \
     -e efi.img \
     -no-emul-boot \
@@ -199,7 +234,7 @@ if [ -f "${ISO_PATH}" ]; then
 fi
 
 # Cleanup build temp images to free disk space
-rm -f "${BUILD_DIR}/esp.img" "${BUILD_DIR}/root.img"
+rm -f "${BUILD_DIR}/esp.img" "${BUILD_DIR}/root.img" "${BUILD_DIR}/early-iso.cfg" "${BUILD_DIR}/iso-${EFI_BINARY}"
 rm -rf "${ISO_ROOT}"
 
 echo "[+] ========================================================"
