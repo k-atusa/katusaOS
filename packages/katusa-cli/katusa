@@ -1,0 +1,309 @@
+#!/usr/bin/env python3
+"""
+katusa - Katusa Programming Club OS Management & Developer CLI
+katusaOS 전용 개발자 및 클럽 관리 도구
+"""
+
+import os
+import sys
+import shutil
+import subprocess
+import platform
+import argparse
+from datetime import datetime
+
+VERSION = "1.0.0-alpha"
+CODENAME = "Alpha"
+
+# ANSI Color codes
+class Color:
+    HEADER = '\033[95m'
+    BLUE = '\033[94m'
+    CYAN = '\033[96m'
+    GREEN = '\033[92m'
+    YELLOW = '\033[93m'
+    RED = '\033[91m'
+    BOLD = '\033[1m'
+    DIM = '\033[2m'
+    UNDERLINE = '\033[4m'
+    RESET = '\033[0m'
+
+BANNER = rf"""{Color.CYAN}{Color.BOLD}
+  _  __      _                     ___  ____  
+ | |/ /__ _ | |_ _   _ ___  __ _  / _ \/ ___| 
+ | ' // _` || __| | | / __|/ _` || | | \___ \ 
+ | . \ (_| || |_| |_| \__ \ (_| || |_| |___) |
+ |_|\_\__,_| \__|\__,_|___/\__,_| \___/|____/ 
+{Color.RESET}{Color.GREEN}  ★ Katusa Programming Club Dedicated Operating System ★{Color.RESET}
+"""
+
+def print_banner():
+    print(BANNER)
+
+def cmd_info(args):
+    print_banner()
+    uname = platform.uname()
+    
+    os_name = "katusaOS"
+    if os.path.exists("/etc/os-release"):
+        with open("/etc/os-release", "r") as f:
+            for line in f:
+                if line.startswith("PRETTY_NAME="):
+                    os_name = line.split("=", 1)[1].strip().strip('"')
+
+    print(f"{Color.BOLD}System Information:{Color.RESET}")
+    print(f"  {Color.CYAN}OS Name:{Color.RESET}       {os_name}")
+    print(f"  {Color.CYAN}Version:{Color.RESET}       {VERSION} ({CODENAME})")
+    print(f"  {Color.CYAN}Architecture:{Color.RESET}  {uname.machine}")
+    print(f"  {Color.CYAN}Kernel:{Color.RESET}        {uname.release}")
+    print(f"  {Color.CYAN}Node/Host:{Color.RESET}     {uname.node}")
+    print(f"  {Color.CYAN}Python:{Color.RESET}        {platform.python_version()}")
+    print()
+    print(f"{Color.BOLD}Katusa Programming Club:{Color.RESET}")
+    print(f"  {Color.GREEN}Status:{Color.RESET}        Active Developer Environment")
+    print(f"  {Color.GREEN}Homepage:{Color.RESET}      https://github.com/k-atusa")
+    print(f"  {Color.GREEN}Docs & Repos:{Color.RESET}  /usr/share/katusa")
+    print()
+
+def get_tool_version(cmd, flag="--version"):
+    try:
+        path = shutil.which(cmd)
+        if not path:
+            return None, "Not Installed"
+        res = subprocess.run([cmd, flag], capture_output=True, text=True, timeout=2)
+        out = (res.stdout or res.stderr).strip().splitlines()[0]
+        # Truncate if too long
+        if len(out) > 40:
+            out = out[:37] + "..."
+        return path, out
+    except Exception as e:
+        return None, f"Error: {e}"
+
+def cmd_doctor(args):
+    print_banner()
+    print(f"{Color.BOLD}Running katusaOS Health & Environment Check...{Color.RESET}\n")
+
+    tools = [
+        ("C Compiler (gcc)", "gcc", "-dumpversion"),
+        ("C++ Compiler (g++)", "g++", "-dumpversion"),
+        ("Clang Compiler", "clang", "--version"),
+        ("Debugger (GDB)", "gdb", "--version"),
+        ("Build System (Make)", "make", "--version"),
+        ("Build System (CMake)", "cmake", "--version"),
+        ("Git Version Control", "git", "--version"),
+        ("Python 3 Runtime", "python3", "--version"),
+        ("Rust Compiler (rustc)", "rustc", "--version"),
+        ("Go Compiler (go)", "go", "version"),
+        ("Node.js Runtime", "node", "--version"),
+        ("Terminal Multiplexer (tmux)", "tmux", "-V"),
+        ("Editor (Neovim/Vim)", "nvim", "--version"),
+        ("Shell (Zsh)", "zsh", "--version"),
+        ("Network Tools (curl)", "curl", "--version"),
+    ]
+
+    ok_count = 0
+    total_count = len(tools)
+
+    for name, binary, flag in tools:
+        path, ver = get_tool_version(binary, flag)
+        if path:
+            ok_count += 1
+            status = f"{Color.GREEN}[ OK ]{Color.RESET}"
+            details = f"{Color.DIM}({ver}){Color.RESET}"
+        else:
+            status = f"{Color.YELLOW}[MISSING]{Color.RESET}"
+            details = f"{Color.DIM}(Run 'sudo apt update && sudo apt install {binary}' to install){Color.RESET}"
+        print(f"  {status} {name:<28} {details}")
+
+    print(f"\n{Color.BOLD}Summary:{Color.RESET} {ok_count}/{total_count} core developer tools available.")
+    if ok_count == total_count:
+        print(f"{Color.GREEN}{Color.BOLD}✓ All katusaOS developer tools are in prime condition! Happy Coding!{Color.RESET}\n")
+    else:
+        print(f"{Color.YELLOW}Some optional tools are missing. Install them if needed for your projects.{Color.RESET}\n")
+
+def cmd_tools(args):
+    cmd_doctor(args)
+
+def cmd_snippet(args):
+    snippets = {
+        "cpp": '''// katusaOS - C++ Fast I/O Template
+#include <iostream>
+#include <vector>
+#include <algorithm>
+using namespace std;
+
+void solve() {
+    // Write your solution here
+    cout << "Hello from katusaOS!" << endl;
+}
+
+int main() {
+    ios_base::sync_with_stdio(false);
+    cin.tie(NULL);
+    int t = 1;
+    // cin >> t;
+    while (t--) {
+        solve();
+    }
+    return 0;
+}
+''',
+        "python": '''#!/usr/bin/env python3
+# katusaOS - Python 3 Fast Template
+import sys
+
+def solve():
+    # input = sys.stdin.readline
+    print("Hello from katusaOS!")
+
+if __name__ == '__main__':
+    solve()
+''',
+        "rust": '''// katusaOS - Rust Template
+fn main() {
+    println!("Hello from katusaOS!");
+}
+''',
+        "go": '''// katusaOS - Go Template
+package main
+
+import "fmt"
+
+func main() {
+    fmt.Println("Hello from katusaOS!")
+}
+''',
+        "c": '''// katusaOS - C Template
+#include <stdio.h>
+
+int main(void) {
+    printf("Hello from katusaOS!\\n");
+    return 0;
+}
+'''
+    }
+
+    if not args.lang:
+        print(f"{Color.BOLD}Available Snippet Templates:{Color.RESET}")
+        for lang in snippets.keys():
+            print(f"  - {Color.CYAN}{lang}{Color.RESET}")
+        print(f"\nUsage: {Color.YELLOW}katusa snippet <language> [-o filename]{Color.RESET}")
+        return
+
+    lang = args.lang.lower()
+    if lang not in snippets:
+        print(f"{Color.RED}Unknown language snippet: {lang}{Color.RESET}")
+        print(f"Supported: {', '.join(snippets.keys())}")
+        return
+
+    content = snippets[lang]
+    if args.output:
+        with open(args.output, "w") as f:
+            f.write(content)
+        print(f"{Color.GREEN}✓ Template written to {args.output}{Color.RESET}")
+    else:
+        print(f"{Color.BOLD}=== {lang.upper()} Template ==={Color.RESET}")
+        print(content)
+
+def cmd_cheat(args):
+    cheats = {
+        "git": """
+[Git Cheat Sheet]
+  git clone <url>          : Clone repository
+  git checkout -b <branch> : Create and switch to new branch
+  git add -A               : Stage all changes
+  git commit -m "msg"      : Commit staged changes
+  git push origin <branch> : Push branch to remote
+  git pull --rebase        : Pull latest changes cleanly
+  git log --oneline --graph: View formatted commit history
+""",
+        "tmux": """
+[Tmux Cheat Sheet (Default prefix: Ctrl+B)]
+  Ctrl+B %   : Split pane vertically
+  Ctrl+B "   : Split pane horizontally
+  Ctrl+B o   : Switch active pane
+  Ctrl+B c   : Create new window
+  Ctrl+B n/p : Next / Previous window
+  Ctrl+B d   : Detach session
+  tmux ls    : List active sessions
+  tmux a -t0 : Attach to session 0
+""",
+        "gdb": """
+[GDB Debugger Cheat Sheet]
+  gdb ./binary       : Start GDB with binary
+  (gdb) break main   : Set breakpoint at main
+  (gdb) run [args]   : Run program with arguments
+  (gdb) next (n)     : Next line (step over)
+  (gdb) step (s)     : Step into function
+  (gdb) print var    : Print variable value
+  (gdb) backtrace(bt): Show call stack
+  (gdb) quit         : Exit GDB
+""",
+        "qemu": """
+[QEMU katusaOS Cheat Sheet]
+  Exit QEMU Console  : Press 'Ctrl+A' then 'X'
+  Switch Monitor     : Press 'Ctrl+A' then 'C'
+  SSH Connection     : ssh -p 2222 katusa@localhost (Password: katusa)
+"""
+    }
+
+    if not args.topic:
+        print(f"{Color.BOLD}Available Cheat Sheets:{Color.RESET}")
+        for t in cheats.keys():
+            print(f"  - {Color.CYAN}{t}{Color.RESET}")
+        print(f"\nUsage: {Color.YELLOW}katusa cheat <topic>{Color.RESET}")
+        return
+
+    topic = args.topic.lower()
+    if topic in cheats:
+        print(f"{Color.CYAN}{cheats[topic]}{Color.RESET}")
+    else:
+        print(f"{Color.RED}Topic '{topic}' not found.{Color.RESET} Available: {', '.join(cheats.keys())}")
+
+def main():
+    parser = argparse.ArgumentParser(
+        prog="katusa",
+        description="katusaOS Developer & Club Tool - Katusa Programming Club",
+        formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument("-v", "--version", action="version", version=f"katusaOS CLI v{VERSION} ({CODENAME})")
+    subparsers = parser.add_subparsers(dest="command", help="Available subcommands")
+
+    # info
+    p_info = subparsers.add_parser("info", help="Display katusaOS system and club info")
+    p_info.set_defaults(func=cmd_info)
+
+    # doctor / tools
+    p_doctor = subparsers.add_parser("doctor", help="Check developer toolchain & system health")
+    p_doctor.set_defaults(func=cmd_doctor)
+
+    p_tools = subparsers.add_parser("tools", help="List installed programming tools and compilers")
+    p_tools.set_defaults(func=cmd_tools)
+
+    # snippet
+    p_snippet = subparsers.add_parser("snippet", help="Generate starter code templates for algorithms/projects")
+    p_snippet.add_argument("lang", nargs="?", help="Language: cpp, python, rust, go, c")
+    p_snippet.add_argument("-o", "--output", help="Save template to file")
+    p_snippet.set_defaults(func=cmd_snippet)
+
+    # help
+    def cmd_help(a):
+        parser.print_help()
+
+    p_help = subparsers.add_parser("help", help="Show help information")
+    p_help.set_defaults(func=cmd_help)
+
+    # cheat
+    p_cheat = subparsers.add_parser("cheat", help="Quick cheat sheets for Git, Tmux, GDB, QEMU")
+    p_cheat.add_argument("topic", nargs="?", help="Topic: git, tmux, gdb, qemu")
+    p_cheat.set_defaults(func=cmd_cheat)
+
+    args = parser.parse_args()
+    if not args.command:
+        cmd_info(args)
+        print(f"Type {Color.YELLOW}'katusa --help'{Color.RESET} to see all available commands.")
+    else:
+        args.func(args)
+
+if __name__ == "__main__":
+    main()
