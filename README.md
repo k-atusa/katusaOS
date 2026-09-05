@@ -74,9 +74,20 @@ make setup
 
 ---
 
-### 2. katusaOS 이미지 빌드
+### 2. katusaOS 이미지 준비 (빌드 또는 릴리즈 다운로드)
 
-Docker를 사용하여 호스트 OS에 구애받지 않고 안전하게 `amd64` 또는 `arm64` 이미지를 빌드합니다.
+#### 방법 A: GitHub Releases에서 사전 빌드된 압축 이미지 다운로드
+GitHub [Releases](https://github.com/k-atusa/katusaOS/releases) 탭에서 최신 버전의 `katusaOS-<version>-<arch>.img.xz` 및 커널/initrd를 다운로드하여 바로 사용할 수 있습니다 (약 350MB).
+
+```bash
+# 다운로드 후 압축 해제 (output/ 디렉토리에 배치)
+mkdir -p output
+xz -d -k katusaOS-*-arm64.img.xz
+mv katusaOS-*-arm64.img output/katusaOS-arm64.img
+```
+
+#### 방법 B: 로컬에서 Docker로 직접 빌드
+Docker를 사용하여 호스트 OS에 구애받지 않고 안전하게 `amd64` 또는 `arm64` 이미지를 직접 빌드합니다.
 
 ```bash
 # 호스트 아키텍처에 맞게 자동 빌드

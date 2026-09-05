@@ -43,33 +43,47 @@ jobs:
           # Build builder image
           docker build -t katusaos-builder:latest -f docker/Dockerfile.builder docker/
 
-          # Build disk image (set size to 1950MB to fit within GitHub Release 2GB asset limit)
+          # Build full 4GB disk image
           docker run --rm --privileged \
             -v "${PWD}:/workspace" \
             -e DEBIAN_FRONTEND=noninteractive \
-            -e IMAGE_SIZE_MB=1950 \
+            -e IMAGE_SIZE_MB=4096 \
             katusaos-builder:latest \
             /workspace/scripts/build-image.sh ${{ matrix.arch }}
 
-      - name: Rename and Prepare Release Artifacts
+      - name: Rename, Compress (XZ) and Generate Checksums
         id: prepare_artifact
         run: |
           VERSION="${{ steps.get_version.outputs.VERSION }}"
           ARCH="${{ matrix.arch }}"
-          TARGET_IMG="output/katusaOS-${VERSION}-${ARCH}.img"
-          mv "output/katusaOS-${ARCH}.img" "${TARGET_IMG}"
+          RAW_IMG="output/katusaOS-${VERSION}-${ARCH}.img"
+          XZ_IMG="output/katusaOS-${VERSION}-${ARCH}.img.xz"
 
-          echo "Created artifact: ${TARGET_IMG}"
+          # Rename raw image
+          mv "output/katusaOS-${ARCH}.img" "${RAW_IMG}"
+          echo "[+] Compressing ${RAW_IMG} with xz (multi-threaded)..."
+
+          # Compress to .xz (reduces ~4GB image to ~350MB)
+          xz -T0 -6 -v "${RAW_IMG}"
+
+          # Generate SHA256 checksum
+          cd output
+          sha256sum "katusaOS-${VERSION}-${ARCH}.img.xz" > "katusaOS-${VERSION}-${ARCH}.img.xz.sha256"
+          cd ..
+
+          echo "[+] Artifact prepared: ${XZ_IMG} ($(du -h "${XZ_IMG}" | cut -f1))"
           ls -lh output/
 
-          echo "img_path=${TARGET_IMG}" >> $GITHUB_OUTPUT
+          echo "xz_path=${XZ_IMG}" >> $GITHUB_OUTPUT
+          echo "sha_path=output/katusaOS-${VERSION}-${ARCH}.img.xz.sha256" >> $GITHUB_OUTPUT
 
-      - name: Upload Image to GitHub Release
+      - name: Upload Compressed Image to GitHub Release
         uses: softprops/action-gh-release@v2
         if: github.event_name == 'release'
         with:
           files: |
-            ${{ steps.prepare_artifact.outputs.img_path }}
+            ${{ steps.prepare_artifact.outputs.xz_path }}
+            ${{ steps.prepare_artifact.outputs.sha_path }}
             output/vmlinuz-${{ matrix.arch }}
             output/initrd-${{ matrix.arch }}.img
         env:
