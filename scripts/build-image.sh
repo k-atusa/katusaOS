@@ -7,7 +7,7 @@ ARCH="${1:-amd64}"
 IMAGE_SIZE_MB="${IMAGE_SIZE_MB:-4096}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-OUTPUT_DIR="${REPO_ROOT}/output"
+OUTPUT_DIR="${OUTPUT_DIR:-${REPO_ROOT}/output}"
 
 # Use local container/system /tmp directory for building to avoid Docker virtiofs/9p nodev issues
 BUILD_DIR="${BUILD_DIR:-/tmp/katusa-build-${ARCH}}"
@@ -29,6 +29,7 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 mkdir -p "${OUTPUT_DIR}"
+chmod 777 "${OUTPUT_DIR}" 2>/dev/null || true
 mkdir -p "${BUILD_DIR}"
 
 # Step 1: Build rootfs if not already present
@@ -54,7 +55,7 @@ echo "[+] Found Initrd: ${INITRD_FILE}"
 
 cp -f "${VMLINUZ_FILE}" "${OUTPUT_DIR}/vmlinuz-${ARCH}"
 cp -f "${INITRD_FILE}" "${OUTPUT_DIR}/initrd-${ARCH}.img"
-chmod 644 "${OUTPUT_DIR}/vmlinuz-${ARCH}" "${OUTPUT_DIR}/initrd-${ARCH}.img"
+chmod 666 "${OUTPUT_DIR}/vmlinuz-${ARCH}" "${OUTPUT_DIR}/initrd-${ARCH}.img" 2>/dev/null || true
 
 # Step 3: Create raw ext4 disk image using mke2fs -d (no loop mount required)
 echo "[+] Generating ${IMAGE_SIZE_MB}MB ext4 disk image directly from rootfs..."
@@ -62,7 +63,7 @@ rm -f "${IMAGE_PATH}"
 
 # Create raw ext4 image populated with rootfs directory contents
 mke2fs -t ext4 -d "${ROOTFS_DIR}" -F -L "katusa-root" "${IMAGE_PATH}" "${IMAGE_SIZE_MB}M"
-chmod 644 "${IMAGE_PATH}"
+chmod 666 "${IMAGE_PATH}" 2>/dev/null || true
 
 echo "[+] ========================================================"
 echo "[+] katusaOS Build Complete!"
