@@ -174,10 +174,10 @@ NET_ARGS=(
 # Display / Console mode
 if [ "${MODE}" = "nographic" ]; then
     DISPLAY_ARGS=("-nographic")
-    KERNEL_APPEND="root=/dev/vda rw console=${CONSOLE} systemd.hostname=katusaOS quiet"
+    KERNEL_APPEND="modules=ext4,virtio_pci,virtio_blk root=/dev/vda rootfstype=ext4 rw console=${CONSOLE} quiet"
 else
     DISPLAY_ARGS=("-device" "virtio-gpu-pci" "-display" "default")
-    KERNEL_APPEND="root=/dev/vda rw console=${CONSOLE} console=tty1 systemd.hostname=katusaOS quiet"
+    KERNEL_APPEND="modules=ext4,virtio_pci,virtio_blk root=/dev/vda rootfstype=ext4 rw console=${CONSOLE} console=tty1 quiet"
 fi
 
 # Direct kernel boot args if kernel & initrd exist

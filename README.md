@@ -3,10 +3,11 @@
 
 ![katusaOS Banner](https://img.shields.io/badge/katusaOS-v1.0.0--alpha-00ADB5?style=for-the-badge)
 ![Arch](https://img.shields.io/badge/Architecture-amd64%20%7C%20arm64-brightgreen?style=for-the-badge)
-![Base](https://img.shields.io/badge/Base-Debian%2012%20(Bookworm)-E95420?style=for-the-badge)
+![Base](https://img.shields.io/badge/Base-Alpine%20Linux%203.20-0D597F?style=for-the-badge)
+![Pkg Manager](https://img.shields.io/badge/Pkg%20Manager-apk-blueviolet?style=for-the-badge)
 ![License](https://img.shields.io/badge/License-GPLv3-blue?style=for-the-badge)
 
-**katusaOS** is a specialized, reproducible Linux distribution designed for members of the **Katusa Programming Club**. It comes pre-configured with modern developer toolchains, algorithm problem-solving starter templates, and club-developed utilities (`katusa-cli`, custom dynamic MOTD, shell configurations).
+**katusaOS** is a lightweight, high-performance, and reproducible Linux distribution built on **Alpine Linux** and the **`apk`** package manager, tailored for members of the **Katusa Programming Club**. It comes pre-configured with modern developer toolchains, algorithm problem-solving starter templates, and club-developed utilities (`katusa-cli`, custom dynamic MOTD, shell configurations).
 
 ---
 

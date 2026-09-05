@@ -84,6 +84,7 @@ def cmd_doctor(args):
     print(f"{Color.BOLD}Running katusaOS Health & Environment Check...{Color.RESET}\n")
 
     tools = [
+        ("Package Manager (apk)", "apk", "--version"),
         ("C Compiler (gcc)", "gcc", "-dumpversion"),
         ("C++ Compiler (g++)", "g++", "-dumpversion"),
         ("Clang Compiler", "clang", "--version"),
@@ -112,7 +113,7 @@ def cmd_doctor(args):
             details = f"{Color.DIM}({ver}){Color.RESET}"
         else:
             status = f"{Color.YELLOW}[MISSING]{Color.RESET}"
-            details = f"{Color.DIM}(Run 'sudo apt update && sudo apt install {binary}' to install){Color.RESET}"
+            details = f"{Color.DIM}(Run 'sudo apk add {binary}' to install){Color.RESET}"
         print(f"  {status} {name:<28} {details}")
 
     print(f"\n{Color.BOLD}Summary:{Color.RESET} {ok_count}/{total_count} core developer tools available.")

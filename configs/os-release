@@ -1,7 +1,7 @@
 NAME="katusaOS"
 PRETTY_NAME="katusaOS 1.0.0-alpha"
 ID=katusaOS
-ID_LIKE=debian
+ID_LIKE=alpine
 VERSION_ID="1.0.0-alpha"
 VERSION="1.0.0-alpha"
 VERSION_CODENAME=alpha

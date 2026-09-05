@@ -1,25 +1,22 @@
-# katusaOS Multi-arch Docker Builder
-FROM debian:bookworm-slim
+# katusaOS Multi-arch Docker Builder (Alpine Linux base)
+FROM alpine:3.20
 
-ENV DEBIAN_FRONTEND=noninteractive
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    debootstrap \
-    qemu-user-static \
-    binfmt-support \
+RUN apk update && apk add --no-cache \
+    apk-tools-static \
+    qemu-aarch64 \
+    qemu-x86_64 \
     e2fsprogs \
     dosfstools \
-    rsync \
-    kmod \
-    util-linux \
-    fdisk \
-    ca-certificates \
-    curl \
-    wget \
-    xz-utils \
     bash \
     coreutils \
-    && rm -rf /var/lib/apt/lists/*
+    util-linux \
+    curl \
+    wget \
+    ca-certificates \
+    rsync \
+    shadow \
+    tar \
+    xz
 
 WORKDIR /workspace
 

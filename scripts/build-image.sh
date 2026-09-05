@@ -43,7 +43,7 @@ fi
 # Step 2: Extract Kernel and Initrd for direct QEMU boot
 echo "[+] Extracting kernel and initramfs for QEMU direct boot..."
 VMLINUZ_FILE=$(find "${ROOTFS_DIR}/boot" -maxdepth 1 -name "vmlinuz*" | sort -V | tail -n 1)
-INITRD_FILE=$(find "${ROOTFS_DIR}/boot" -maxdepth 1 -name "initrd.img*" | sort -V | tail -n 1)
+INITRD_FILE=$(find "${ROOTFS_DIR}/boot" -maxdepth 1 \( -name "initramfs*" -o -name "initrd*" \) | sort -V | tail -n 1)
 
 if [ -z "${VMLINUZ_FILE}" ] || [ -z "${INITRD_FILE}" ]; then
     echo "[-] Error: Could not find kernel or initrd in ${ROOTFS_DIR}/boot!"
