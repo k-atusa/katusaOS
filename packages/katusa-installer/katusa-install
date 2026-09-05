@@ -1,0 +1,596 @@
+#!/usr/bin/env python3
+"""
+katusaOS Disk Installer (katusa-install)
+Interactive TUI & CLI Installer for katusaOS on UTM, QEMU, and Physical Drives.
+"""
+
+import os
+import sys
+import time
+import argparse
+import subprocess
+import shutil
+
+BANNER = r"""
+  _  __      _                     ___  ____  
+ | |/ /__ _ | |_ _   _ ___  __ _  / _ \/ ___| 
+ | ' // _` || __| | | / __|/ _` || | | \___ \ 
+ | . \ (_| || |_| |_| \__ \ (_| || |_| |___) |
+ |_|\_\__,_| \__|\__,_|___/\__,_| \___/|____/ 
+  ★ Katusa Programming Club Dedicated Operating System ★
+"""
+
+INSTALL_BANNER = r"""
+ _         _                        ___           _        _ _           
+| | ____ _| |_ _   _ ___  __ _     |_ _|_ __  ___| |_ __ _| | | ___ _ __ 
+| |/ / _` | __| | | / __|/ _` |_____| || '_ \/ __| __/ _` | | |/ _ \ '__|
+|   < (_| | |_| |_| \__ \ (_| |_____| || | | \__ \ || (_| | | |  __/ |   
+|_|\_\__,_|\__|\__,_|___/\__,_|    |___|_| |_|___/\__\__,_|_|_|\___|_|   
+"""
+
+def run_cmd(cmd, check=True, capture=True):
+    """Run a shell command and return stdout."""
+    res = subprocess.run(cmd, shell=True, text=True, capture_output=capture)
+    if check and res.returncode != 0:
+        err_msg = res.stderr.strip() if res.stderr else f"Command failed with exit code {res.returncode}"
+        raise RuntimeError(f"Error running '{cmd}': {err_msg}")
+    return res.stdout.strip() if capture else ""
+
+
+def get_booted_device():
+    """Find the disk from which the current rootfs is mounted."""
+    try:
+        out = run_cmd("findmnt -n -o SOURCE /", check=False)
+        if not out:
+            return None
+        # e.g. /dev/vda2 -> /dev/vda
+        dev = out.split()[0]
+        # Handle partition suffixes like p1 or 1
+        base = dev.rstrip("0123456789")
+        if base.endswith("p") and base[:-1][-1].isdigit():
+            base = base[:-1]
+        return base
+    except Exception:
+        return None
+
+
+def get_available_disks():
+    """Scan and return candidate destination block devices."""
+    disks = []
+    booted_dev = get_booted_device()
+
+    # Try lsblk first
+    if shutil.which("lsblk"):
+        try:
+            # NAME,SIZE,TYPE,MODEL,RO
+            raw = run_cmd("lsblk -d -n -b -o NAME,SIZE,TYPE,MODEL,RO", check=False)
+            for line in raw.splitlines():
+                parts = line.split(maxsplit=4)
+                if len(parts) < 3:
+                    continue
+                name, size_bytes_str, dev_type = parts[0], parts[1], parts[2]
+                model = parts[3] if len(parts) > 3 else "Unknown"
+                ro = parts[4] if len(parts) > 4 else "0"
+
+                if dev_type != "disk" or ro == "1":
+                    continue
+                if name.startswith("loop") or name.startswith("sr") or name.startswith("ram") or name.startswith("zram"):
+                    continue
+
+                dev_path = f"/dev/{name}"
+                is_booted = (dev_path == booted_dev)
+                try:
+                    size_gb = round(int(size_bytes_str) / (1024 ** 3), 1)
+                except ValueError:
+                    size_gb = 0.0
+
+                disks.append({
+                    "path": dev_path,
+                    "name": name,
+                    "size_gb": size_gb,
+                    "model": model.strip(),
+                    "is_booted": is_booted
+                })
+            return disks
+        except Exception:
+            pass
+
+    # Fallback to /sys/block
+    if os.path.exists("/sys/block"):
+        for name in os.listdir("/sys/block"):
+            if name.startswith("loop") or name.startswith("sr") or name.startswith("ram") or name.startswith("zram"):
+                continue
+            dev_path = f"/dev/{name}"
+            size_path = f"/sys/block/{name}/size"
+            ro_path = f"/sys/block/{name}/ro"
+            model_path = f"/sys/block/{name}/device/model"
+
+            ro = "0"
+            if os.path.exists(ro_path):
+                with open(ro_path) as f:
+                    ro = f.read().strip()
+            if ro == "1":
+                continue
+
+            size_gb = 0.0
+            if os.path.exists(size_path):
+                with open(size_path) as f:
+                    sectors = int(f.read().strip())
+                    size_gb = round((sectors * 512) / (1024 ** 3), 1)
+
+            model = "Block Device"
+            if os.path.exists(model_path):
+                with open(model_path) as f:
+                    model = f.read().strip()
+
+            is_booted = (dev_path == booted_dev)
+            disks.append({
+                "path": dev_path,
+                "name": name,
+                "size_gb": size_gb,
+                "model": model,
+                "is_booted": is_booted
+            })
+
+    return disks
+
+
+def get_partition_names(disk_path):
+    """Return ESP and Root partition device paths for a given disk."""
+    # /dev/nvme0n1 -> /dev/nvme0n1p1, /dev/nvme0n1p2
+    # /dev/vda -> /dev/vda1, /dev/vda2
+    if disk_path[-1].isdigit():
+        return f"{disk_path}p1", f"{disk_path}p2"
+    return f"{disk_path}1", f"{disk_path}2"
+
+
+def perform_installation(target_disk, hostname="katusaOS", username="katusa", password="katusa", progress_cb=None):
+    """
+    Executes the full installation pipeline:
+    1. Unmount existing partitions
+    2. Create GPT partition table (ESP 512MB + Root)
+    3. Format partitions (ESP FAT32 + Root ext4)
+    4. Mount to /mnt/katusa-install
+    5. Copy system files
+    6. Configure fstab with UUIDs
+    7. Install GRUB UEFI bootloader
+    8. Write grub.cfg
+    9. Finalize and unmount
+    """
+    def update(step, total, text):
+        if progress_cb:
+            progress_cb(step, total, text)
+        else:
+            print(f"[{step}/{total}] {text}")
+
+    esp_part, root_part = get_partition_names(target_disk)
+    mount_dir = "/mnt/katusa-install"
+    total_steps = 9
+
+    # Step 1: Unmount target disk
+    update(1, total_steps, f"Unmounting active partitions on {target_disk}...")
+    run_cmd(f"umount -f {target_disk}* 2>/dev/null || true", check=False)
+    run_cmd(f"swapoff {target_disk}* 2>/dev/null || true", check=False)
+    run_cmd(f"wipefs -a {target_disk} 2>/dev/null || true", check=False)
+
+    # Step 2: Partition with parted
+    update(2, total_steps, f"Creating GPT partition table on {target_disk}...")
+    run_cmd(f"parted -s {target_disk} mklabel gpt")
+    run_cmd(f"parted -s {target_disk} mkpart ESP fat32 1MiB 513MiB")
+    run_cmd(f"parted -s {target_disk} set 1 esp on")
+    run_cmd(f"parted -s {target_disk} mkpart root ext4 513MiB 100%")
+    run_cmd(f"partprobe {target_disk} 2>/dev/null || true", check=False)
+    run_cmd("mdev -s 2>/dev/null || true", check=False)
+    time.sleep(1)
+    if not os.path.exists(esp_part) or not os.path.exists(root_part):
+        run_cmd("mdev -s 2>/dev/null || true", check=False)
+        time.sleep(1)
+
+    # Step 3: Format partitions
+    update(3, total_steps, f"Formatting ESP ({esp_part}) and Root ({root_part})...")
+    run_cmd(f"mkfs.vfat -F32 -n 'KATUSA-ESP' {esp_part}")
+    run_cmd(f"mkfs.ext4 -F -L 'katusa-root' {root_part}")
+
+    # Step 4: Mount target partitions
+    update(4, total_steps, "Mounting target filesystems...")
+    os.makedirs(f"{mount_dir}/boot/efi", exist_ok=True)
+    run_cmd(f"mount {root_part} {mount_dir}")
+    os.makedirs(f"{mount_dir}/boot/efi", exist_ok=True)
+    run_cmd(f"mount {esp_part} {mount_dir}/boot/efi")
+
+    # Step 5: Copy system files
+    update(5, total_steps, "Copying katusaOS system files and toolchains (this may take a minute)...")
+    excludes = [
+        "--exclude=/proc/*",
+        "--exclude=/sys/*",
+        "--exclude=/dev/*",
+        "--exclude=/run/*",
+        "--exclude=/mnt/*",
+        "--exclude=/tmp/*",
+        "--exclude=/media/*",
+        "--exclude=/lost+found"
+    ]
+    exclude_str = " ".join(excludes)
+    run_cmd(f"rsync -aHAX {exclude_str} / {mount_dir}/")
+
+    for d in ["proc", "sys", "dev", "run", "mnt", "tmp", "media"]:
+        os.makedirs(f"{mount_dir}/{d}", exist_ok=True)
+    os.chmod(f"{mount_dir}/tmp", 0o1777)
+
+    # Step 6: Generate /etc/fstab with UUIDs
+    update(6, total_steps, "Configuring filesystem table (/etc/fstab)...")
+    root_uuid = run_cmd(f"blkid -s UUID -o value {root_part}", check=False)
+    esp_uuid = run_cmd(f"blkid -s UUID -o value {esp_part}", check=False)
+
+    fstab_content = (
+        "# /etc/fstab: static file system information for katusaOS\n"
+        f"UUID={root_uuid}   /          ext4    noatime,rw   0   1\n"
+        f"UUID={esp_uuid}    /boot/efi  vfat    umask=0077   0   2\n"
+        "tmpfs              /tmp       tmpfs   defaults     0   0\n"
+    )
+    with open(f"{mount_dir}/etc/fstab", "w") as f:
+        f.write(fstab_content)
+
+    # Step 7: Install GRUB UEFI bootloader
+    update(7, total_steps, "Installing GRUB UEFI bootloader to ESP...")
+    arch = run_cmd("uname -m", check=False)
+    grub_target = "arm64-efi" if arch in ["aarch64", "arm64"] else "x86_64-efi"
+
+    run_cmd(
+        f"grub-install --target={grub_target} "
+        f"--efi-directory={mount_dir}/boot/efi "
+        f"--boot-directory={mount_dir}/boot "
+        f"--bootloader-id=katusaOS "
+        f"--removable --recheck",
+        check=False
+    )
+
+    # Step 8: Configure grub.cfg and host settings
+    update(8, total_steps, "Generating GRUB configuration and finalizing system...")
+    os.makedirs(f"{mount_dir}/boot/grub", exist_ok=True)
+    grub_cfg = f"""# GRUB Configuration for katusaOS
+set default=0
+set timeout=3
+
+insmod part_gpt
+insmod ext2
+insmod fat
+
+menuentry 'katusaOS' {{
+    search --no-floppy --fs-uuid --set=root {root_uuid}
+    linux /boot/vmlinuz-virt root=UUID={root_uuid} rw modules=ext4,virtio_pci,virtio_blk quiet
+    initrd /boot/initramfs-virt
+}}
+
+menuentry 'katusaOS (Fallback Recovery)' {{
+    search --no-floppy --fs-uuid --set=root {root_uuid}
+    linux /boot/vmlinuz-virt root=UUID={root_uuid} rw modules=ext4,virtio_pci,virtio_blk single
+    initrd /boot/initramfs-virt
+}}
+"""
+    with open(f"{mount_dir}/boot/grub/grub.cfg", "w") as f:
+        f.write(grub_cfg)
+
+    # Write hostname
+    with open(f"{mount_dir}/etc/hostname", "w") as f:
+        f.write(f"{hostname}\n")
+
+    # Step 9: Sync and unmount
+    update(9, total_steps, "Syncing disk buffers and unmounting target...")
+    run_cmd("sync")
+    run_cmd(f"umount -R {mount_dir} 2>/dev/null || true", check=False)
+    time.sleep(1)
+
+
+# ==============================================================================
+# Curses Terminal User Interface (TUI)
+# ==============================================================================
+
+def run_curses_gui(stdscr):
+    import curses
+
+    # Setup colors and cursor
+    curses.curs_set(0)
+    curses.start_color()
+    curses.use_default_colors()
+
+    # Color pairs
+    # 1: Title / Cyan
+    # 2: Highlight / Selected (Black on Cyan)
+    # 3: Warning / Red or Yellow
+    # 4: Success / Green
+    # 5: Dim / Gray
+    curses.init_pair(1, curses.COLOR_CYAN, -1)
+    curses.init_pair(2, curses.COLOR_BLACK, curses.COLOR_CYAN)
+    curses.init_pair(3, curses.COLOR_RED, -1)
+    curses.init_pair(4, curses.COLOR_GREEN, -1)
+    curses.init_pair(5, curses.COLOR_YELLOW, -1)
+
+    # Screen 1: Welcome
+    while True:
+        stdscr.clear()
+        h, w = stdscr.getmaxyx()
+
+        # Banner
+        banner_lines = [
+            "  _  __      _                     ___  ____  ",
+            " | |/ /__ _ | |_ _   _ ___  __ _  / _ \\/ ___| ",
+            " | ' // _` || __| | | / __|/ _` || | | \\___ \\ ",
+            " | . \\ (_| || |_| |_| \\__ \\ (_| || |_| |___) |",
+            " |_|\\_\\__,_| \\__|\\__,_|___/\\__,_| \\___/|____/ ",
+            "  ★ Katusa Programming Club Dedicated Operating System ★"
+        ]
+        start_y = max(1, (h - 20) // 2)
+        for i, line in enumerate(banner_lines):
+            stdscr.addstr(start_y + i, max(0, (w - len(line)) // 2), line, curses.color_pair(1) | curses.A_BOLD)
+
+        intro_y = start_y + len(banner_lines) + 2
+        stdscr.addstr(intro_y, max(0, (w - 44) // 2), "Welcome to the katusaOS Disk Installer!", curses.A_BOLD)
+        stdscr.addstr(intro_y + 1, max(0, (w - 62) // 2), "Install katusaOS permanently to your UTM virtual disk or drive.", curses.color_pair(5))
+
+        btn = "[ Press ENTER to Begin Installation ]"
+        stdscr.addstr(intro_y + 4, max(0, (w - len(btn)) // 2), btn, curses.color_pair(2) | curses.A_BOLD)
+
+        quit_hint = "Press 'q' or 'ESC' to exit to shell"
+        stdscr.addstr(intro_y + 6, max(0, (w - len(quit_hint)) // 2), quit_hint, curses.A_DIM)
+
+        stdscr.refresh()
+        key = stdscr.getch()
+        if key in [10, 13]: # Enter
+            break
+        elif key in [ord('q'), ord('Q'), 27]: # q or ESC
+            return False
+
+    # Screen 2: Disk Selection
+    disks = get_available_disks()
+    if not disks:
+        stdscr.clear()
+        h, w = stdscr.getmaxyx()
+        msg = "No suitable target disks detected!"
+        hint = "Ensure a virtual drive is attached in UTM (e.g. VirtIO 20GB+)."
+        stdscr.addstr(h // 2 - 1, max(0, (w - len(msg)) // 2), msg, curses.color_pair(3) | curses.A_BOLD)
+        stdscr.addstr(h // 2 + 1, max(0, (w - len(hint)) // 2), hint)
+        stdscr.addstr(h // 2 + 3, max(0, (w - 24) // 2), "Press any key to exit...", curses.A_DIM)
+        stdscr.refresh()
+        stdscr.getch()
+        return False
+
+    selected_idx = 0
+    while True:
+        stdscr.clear()
+        h, w = stdscr.getmaxyx()
+
+        title = "★ Step 1: Select Target Disk for Installation ★"
+        stdscr.addstr(2, max(0, (w - len(title)) // 2), title, curses.color_pair(1) | curses.A_BOLD)
+        desc = "Use UP/DOWN arrows to choose disk, then press ENTER to select."
+        stdscr.addstr(4, max(0, (w - len(desc)) // 2), desc, curses.A_DIM)
+
+        start_y = 6
+        for i, d in enumerate(disks):
+            prefix = "  [>] " if i == selected_idx else "      "
+            boot_tag = " (Current Live Disk - CAUTION)" if d["is_booted"] else ""
+            line = f"{prefix}{d['path']:<12} {d['size_gb']:>6.1f} GiB  |  {d['model']}{boot_tag}"
+            attr = curses.color_pair(2) | curses.A_BOLD if i == selected_idx else curses.A_NORMAL
+            if d["is_booted"]:
+                attr |= curses.color_pair(3)
+            stdscr.addstr(start_y + i * 2, max(4, (w - 70) // 2), line[:w-5], attr)
+
+        hint = "Enter: Select Disk  |  q: Cancel & Exit"
+        stdscr.addstr(h - 2, max(0, (w - len(hint)) // 2), hint, curses.A_DIM)
+        stdscr.refresh()
+
+        key = stdscr.getch()
+        if key in [curses.KEY_UP, ord('k')]:
+            selected_idx = (selected_idx - 1) % len(disks)
+        elif key in [curses.KEY_DOWN, ord('j')]:
+            selected_idx = (selected_idx + 1) % len(disks)
+        elif key in [10, 13]: # Enter
+            target_disk = disks[selected_idx]
+            break
+        elif key in [ord('q'), 27]:
+            return False
+
+    # Screen 3: Confirmation Dialog
+    stdscr.clear()
+    h, w = stdscr.getmaxyx()
+
+    box_w = 64
+    box_h = 14
+    box_x = max(0, (w - box_w) // 2)
+    box_y = max(0, (h - box_h) // 2)
+
+    warn_title = "⚠ WARNING: DATA DESTRUCTION CONFIRMATION ⚠"
+    warn_text1 = f"All data on {target_disk['path']} ({target_disk['size_gb']} GiB) will be PERMANENTLY ERASED!"
+    warn_text2 = "A new GPT partition table, EFI ESP, and rootfs will be created."
+    prompt = "Type 'YES' to proceed with installation, or 'NO' to abort:"
+
+    stdscr.addstr(box_y, max(0, (w - len(warn_title)) // 2), warn_title, curses.color_pair(3) | curses.A_BOLD)
+    stdscr.addstr(box_y + 2, box_x + 2, warn_text1, curses.A_BOLD)
+    stdscr.addstr(box_y + 4, box_x + 2, warn_text2, curses.color_pair(5))
+    stdscr.addstr(box_y + 6, box_x + 2, prompt, curses.A_BOLD)
+
+    # Input prompt
+    curses.echo()
+    curses.curs_set(1)
+    stdscr.addstr(box_y + 8, box_x + 2, "Confirmation: ")
+    stdscr.refresh()
+    user_input = stdscr.getstr(box_y + 8, box_x + 16, 10).decode("utf-8").strip()
+    curses.noecho()
+    curses.curs_set(0)
+
+    if user_input.upper() != "YES":
+        stdscr.clear()
+        stdscr.addstr(h // 2, max(0, (w - 30) // 2), "Installation aborted by user.", curses.color_pair(3))
+        stdscr.refresh()
+        time.sleep(1.5)
+        return False
+
+    # Screen 4: Progress Execution
+    stdscr.clear()
+    title = "★ Installing katusaOS to Target Disk ★"
+    stdscr.addstr(2, max(0, (w - len(title)) // 2), title, curses.color_pair(1) | curses.A_BOLD)
+    stdscr.refresh()
+
+    steps_log = []
+    def progress_callback(step, total, text):
+        stdscr.clear()
+        stdscr.addstr(2, max(0, (w - len(title)) // 2), title, curses.color_pair(1) | curses.A_BOLD)
+
+        # Progress bar
+        percent = int((step / total) * 100)
+        bar_len = 40
+        filled = int((percent / 100) * bar_len)
+        bar_str = f"[{'█' * filled}{'░' * (bar_len - filled)}] {percent}%"
+        stdscr.addstr(4, max(0, (w - len(bar_str)) // 2), bar_str, curses.color_pair(1) | curses.A_BOLD)
+
+        # Steps list
+        steps_log.append((step, text))
+        start_y = 7
+        for s_idx, (s_num, s_text) in enumerate(steps_log[-8:]):
+            if s_num == step:
+                prefix = "  [▶] "
+                attr = curses.color_pair(5) | curses.A_BOLD
+            else:
+                prefix = "  [✔] "
+                attr = curses.color_pair(4)
+            stdscr.addstr(start_y + s_idx, max(4, (w - 60) // 2), f"{prefix}{s_text}"[:w-5], attr)
+
+        stdscr.refresh()
+
+    try:
+        perform_installation(target_disk["path"], progress_cb=progress_callback)
+    except Exception as e:
+        stdscr.clear()
+        err = f"Installation Failed: {str(e)}"
+        stdscr.addstr(h // 2 - 1, max(0, (w - len(err)) // 2), err, curses.color_pair(3) | curses.A_BOLD)
+        stdscr.addstr(h // 2 + 2, max(0, (w - 24) // 2), "Press any key to exit...", curses.A_DIM)
+        stdscr.refresh()
+        stdscr.getch()
+        return False
+
+    # Screen 5: Success
+    stdscr.clear()
+    h, w = stdscr.getmaxyx()
+    succ_title = "🎉 katusaOS Installation Complete! 🎉"
+    stdscr.addstr(h // 2 - 4, max(0, (w - len(succ_title)) // 2), succ_title, curses.color_pair(4) | curses.A_BOLD)
+
+    info1 = f"katusaOS has been installed successfully onto {target_disk['path']}."
+    info2 = "Next steps for UTM App users:"
+    info3 = "1. In UTM VM Settings, detach/remove the installer ISO or drive."
+    info4 = "2. Reboot the virtual machine to boot directly from your new disk!"
+    info5 = "Default User: katusa  |  Password: katusa"
+
+    stdscr.addstr(h // 2 - 2, max(0, (w - len(info1)) // 2), info1)
+    stdscr.addstr(h // 2, max(0, (w - len(info2)) // 2), info2, curses.color_pair(1))
+    stdscr.addstr(h // 2 + 1, max(0, (w - len(info3)) // 2), info3)
+    stdscr.addstr(h // 2 + 2, max(0, (w - len(info4)) // 2), info4)
+    stdscr.addstr(h // 2 + 4, max(0, (w - len(info5)) // 2), info5, curses.color_pair(5) | curses.A_BOLD)
+
+    btn = "[ Press ENTER to Reboot Now  |  Press 'q' for Terminal ]"
+    stdscr.addstr(h // 2 + 7, max(0, (w - len(btn)) // 2), btn, curses.color_pair(2) | curses.A_BOLD)
+    stdscr.refresh()
+
+    while True:
+        key = stdscr.getch()
+        if key in [10, 13]:
+            # Reboot
+            curses.endwin()
+            print("[+] Rebooting system...")
+            run_cmd("reboot 2>/dev/null || true", check=False)
+            sys.exit(0)
+        elif key in [ord('q'), 27]:
+            break
+
+    return True
+
+
+# ==============================================================================
+# CLI Entry Point
+# ==============================================================================
+
+def main():
+    parser = argparse.ArgumentParser(description="katusaOS Disk Installer (UTM & Physical Drive)")
+    parser.add_argument("--target", "-t", help="Target disk path (e.g. /dev/vda, /dev/sda)")
+    parser.add_argument("--yes", "-y", action="store_true", help="Automatically confirm wiping target disk")
+    parser.add_argument("--list-disks", "-l", action="store_true", help="List available target disks and exit")
+    parser.add_argument("--cli", action="store_true", help="Force text CLI mode instead of curses TUI")
+    args = parser.parse_args()
+
+    # Must be root
+    if os.geteuid() != 0:
+        print("[-] Error: katusa-install must be run as root (use 'sudo katusa-install').", file=sys.stderr)
+        sys.exit(1)
+
+    if args.list_disks:
+        disks = get_available_disks()
+        print("Available Target Disks:")
+        for d in disks:
+            boot_tag = " (Current Boot Disk)" if d["is_booted"] else ""
+            print(f"  {d['path']:<12} {d['size_gb']:>6.1f} GiB  [{d['model']}]{boot_tag}")
+        sys.exit(0)
+
+    # Automated non-interactive mode
+    if args.target:
+        if not args.yes:
+            print(f"[!] WARNING: Target disk {args.target} will be completely ERASED.")
+            confirm = input("Type 'YES' to confirm: ").strip()
+            if confirm.upper() != "YES":
+                print("[-] Aborted by user.")
+                sys.exit(1)
+
+        print(f"[+] Starting automated installation onto {args.target}...")
+        perform_installation(args.target)
+        print(f"[✓] katusaOS installed successfully on {args.target}!")
+        sys.exit(0)
+
+    # If terminal supports curses and not forced to CLI
+    if not args.cli and sys.stdin.isatty():
+        try:
+            import curses
+            curses.wrapper(run_curses_gui)
+            return
+        except Exception as e:
+            print(f"[!] Curses UI exited or unsupported: {e}. Falling back to CLI mode...")
+
+    # Interactive CLI Mode Fallback
+    print(BANNER)
+    print(INSTALL_BANNER)
+    print("Welcome to katusaOS Disk Installer!\n")
+
+    disks = get_available_disks()
+    if not disks:
+        print("[-] No suitable target disks found. Please attach a virtual drive in UTM.")
+        sys.exit(1)
+
+    print("Available Destination Disks:")
+    for idx, d in enumerate(disks, 1):
+        boot_tag = " (Current Boot Disk - Caution!)" if d["is_booted"] else ""
+        print(f"  [{idx}] {d['path']:<12} {d['size_gb']:>6.1f} GiB  ({d['model']}){boot_tag}")
+
+    print()
+    while True:
+        try:
+            choice = input(f"Select disk number (1-{len(disks)}) or 'q' to quit: ").strip()
+            if choice.lower() == 'q':
+                sys.exit(0)
+            c_idx = int(choice) - 1
+            if 0 <= c_idx < len(disks):
+                selected = disks[c_idx]
+                break
+        except ValueError:
+            pass
+        print("Invalid selection, please try again.")
+
+    print(f"\n[!] WARNING: All data on {selected['path']} ({selected['size_gb']} GiB) will be DESTROYED!")
+    confirm = input("Type 'YES' to proceed: ").strip()
+    if confirm.upper() != "YES":
+        print("[-] Installation aborted.")
+        sys.exit(1)
+
+    perform_installation(selected["path"])
+    print(f"\n[✓] katusaOS successfully installed to {selected['path']}!")
+    print("[*] Detach installer media in UTM and restart the VM.")
+
+
+if __name__ == "__main__":
+    main()

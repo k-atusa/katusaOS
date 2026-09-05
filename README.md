@@ -135,6 +135,35 @@ make run-amd64       # AMD64 QEMU
 
 ---
 
+### 4. Running in UTM App & Permanent Disk Installation (`katusa-install`)
+
+katusaOS provides a dedicated interactive **Terminal UI Installer (`katusa-install`)** and native UEFI bootloader support for virtualization apps like **UTM (macOS / iOS)**.
+
+#### Method 1: Installing to Virtual Disk via Bootable ISO (Recommended for UTM)
+1. In UTM, click **`+` (Create VM) -> Virtualize -> Linux**.
+2. Check **Boot ISO Image** and select `output/katusaOS-arm64-installer.iso` (or `amd64`).
+3. Set your desired disk size (e.g., 20GB - 64GB) and finish creating the VM.
+4. Start the VM. It boots via UEFI into the katusaOS live environment.
+5. In the terminal, run the interactive installer:
+   ```bash
+   sudo katusa-install
+   # or simply:
+   katusa install
+   ```
+6. The installer TUI will guide you through:
+   - Target disk selection (e.g. `/dev/vda` 64GB)
+   - Partitioning with GPT & FAT32 EFI System Partition (ESP)
+   - Formatting and copying system files
+   - Installing GRUB UEFI bootloader
+7. Once installation finishes, **detach/remove the ISO from UTM Drives** and restart the VM. Your VM now runs 100% permanently from your virtual disk!
+
+#### Method 2: Booting the GPT Disk Image Directly in UTM
+1. In UTM, create a Linux VM without an ISO.
+2. In the VM settings under **Drives**, add or import `output/katusaOS-arm64.img`.
+3. Start the VM — UTM's UEFI firmware (`EDK2/AAVMF`) automatically boots GRUB EFI from the disk!
+
+---
+
 ## 🛠️ Club Tool: `katusa` CLI
 
 Inside the katusaOS terminal, you can access club tools and utilities with the `katusa` command:

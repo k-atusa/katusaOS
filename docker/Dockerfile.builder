@@ -16,7 +16,11 @@ RUN apk update && apk add --no-cache \
     rsync \
     shadow \
     tar \
-    xz
+    xz \
+    grub-efi \
+    parted \
+    mtools \
+    xorriso
 
 WORKDIR /workspace
 

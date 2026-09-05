@@ -25,6 +25,9 @@ SSH_PORT="${SSH_PORT:-2222}"
 MODE="nographic"
 BOOT_MODE="direct" # direct (kernel+initrd+disk) or disk
 
+TARGET_DISK=""
+USE_UEFI=false
+
 print_usage() {
     echo "Usage: $0 [OPTIONS]"
     echo ""
@@ -33,13 +36,16 @@ print_usage() {
     echo "  -m, --mem <size>          RAM allocation (default: ${MEM})"
     echo "  -c, --cpu <count>         vCPU count (default: ${SMP})"
     echo "  -p, --port <port>         Host SSH forwarded port (default: ${SSH_PORT})"
+    echo "  --target-disk <path>      Attach a second virtual disk for testing installation"
+    echo "  --uefi                    Boot via UEFI firmware (simulates UTM)"
     echo "  --gui                     Launch QEMU with graphical window instead of serial console"
     echo "  --nographic               Serial terminal console mode (default)"
     echo "  -h, --help                Show this help message"
     echo ""
     echo "Examples:"
     echo "  $0 --arch arm64"
-    echo "  $0 --arch amd64 --gui"
+    echo "  $0 --arch arm64 --target-disk /tmp/target.img"
+    echo "  $0 --arch arm64 --uefi"
 }
 
 while [[ $# -gt 0 ]]; do
@@ -59,6 +65,14 @@ while [[ $# -gt 0 ]]; do
         -p|--port)
             SSH_PORT="$2"
             shift 2
+            ;;
+        --target-disk)
+            TARGET_DISK="$2"
+            shift 2
+            ;;
+        --uefi)
+            USE_UEFI=true
+            shift
             ;;
         --gui)
             MODE="gui"
@@ -154,6 +168,18 @@ else
     exit 1
 fi
 
+# Attach target installation disk if requested
+if [ -n "${TARGET_DISK}" ]; then
+    if [ ! -f "${TARGET_DISK}" ]; then
+        echo "[+] Creating empty target disk at ${TARGET_DISK} (10GB)..."
+        dd if=/dev/zero of="${TARGET_DISK}" bs=1M count=1 seek=10239 status=none
+    fi
+    echo "[+] Attaching secondary target disk: ${TARGET_DISK} (Guest /dev/vdb)"
+    QEMU_EXTRA_ARGS+=(
+        "-drive" "file=${TARGET_DISK},format=raw,if=virtio,id=drive1"
+    )
+fi
+
 # Check if QEMU binary is installed
 if ! command -v "${QEMU_BIN}" &> /dev/null; then
     echo "[-] Error: ${QEMU_BIN} is not installed or not found in PATH."
@@ -174,14 +200,38 @@ NET_ARGS=(
 # Display / Console mode
 if [ "${MODE}" = "nographic" ]; then
     DISPLAY_ARGS=("-nographic")
-    KERNEL_APPEND="modules=ext4,virtio_pci,virtio_blk root=/dev/vda rootfstype=ext4 rw console=${CONSOLE} quiet"
+    KERNEL_APPEND="modules=ext4,virtio_pci,virtio_blk root=LABEL=katusa-root rootfstype=ext4 rw console=${CONSOLE} quiet"
 else
     DISPLAY_ARGS=("-device" "virtio-gpu-pci" "-display" "default")
-    KERNEL_APPEND="modules=ext4,virtio_pci,virtio_blk root=/dev/vda rootfstype=ext4 rw console=${CONSOLE} console=tty1 quiet"
+    KERNEL_APPEND="modules=ext4,virtio_pci,virtio_blk root=LABEL=katusa-root rootfstype=ext4 rw console=${CONSOLE} console=tty1 quiet"
 fi
 
-# Direct kernel boot args if kernel & initrd exist
-if [ -f "${KERNEL_IMG}" ] && [ -f "${INITRD_IMG}" ]; then
+# UEFI or Direct kernel boot
+if [ "${USE_UEFI}" = "true" ]; then
+    UEFI_FW=""
+    for cand in \
+        "/Applications/UTM.app/Contents/Resources/qemu/edk2-aarch64-code.fd" \
+        "/Applications/UTM.app/Contents/Resources/qemu/edk2-x86_64-code.fd" \
+        "/usr/share/OVMF/OVMF_CODE.fd" \
+        "/usr/share/edk2/aarch64/QEMU_EFI.fd"; do
+        if [ -f "${cand}" ]; then
+            UEFI_FW="${cand}"
+            break
+        fi
+    done
+    if [ -n "${UEFI_FW}" ]; then
+        echo "[+] Booting via UEFI Firmware: ${UEFI_FW}"
+        QEMU_EXTRA_ARGS+=("-bios" "${UEFI_FW}")
+        BOOT_ARGS=()
+    else
+        echo "[-] Warning: No UEFI firmware found. Falling back to direct boot."
+        BOOT_ARGS=(
+            "-kernel" "${KERNEL_IMG}"
+            "-initrd" "${INITRD_IMG}"
+            "-append" "${KERNEL_APPEND}"
+        )
+    fi
+elif [ -f "${KERNEL_IMG}" ] && [ -f "${INITRD_IMG}" ]; then
     BOOT_ARGS=(
         "-kernel" "${KERNEL_IMG}"
         "-initrd" "${INITRD_IMG}"

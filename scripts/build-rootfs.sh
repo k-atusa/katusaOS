@@ -79,8 +79,13 @@ BASE_PACKAGES=(
     curl
     wget
     tar
-    xz
-    e2fsprogs
+    e2fsprogs \
+    dosfstools \
+    parted \
+    grub-efi \
+    dialog \
+    ncurses \
+    rsync
 )
 
 DEVELOPER_PACKAGES=(
@@ -148,6 +153,9 @@ cat << 'EOF' > "${ROOTFS_DIR}/etc/motd"
 Welcome to katusaOS! Type 'katusa doctor' to verify your toolchains,
 or 'katusa help' for developer cheat sheets & starter templates.
 
+💡 To install katusaOS permanently to your disk (UTM/QEMU), run:
+   sudo katusa-install
+
 EOF
 
 # Copy Skeleton dotfiles
@@ -157,10 +165,12 @@ cp "${REPO_ROOT}/configs/skel/.zshrc" "${ROOTFS_DIR}/etc/skel/.zshrc"
 cp "${REPO_ROOT}/configs/skel/.tmux.conf" "${ROOTFS_DIR}/etc/skel/.tmux.conf"
 cp "${REPO_ROOT}/configs/skel/.vimrc" "${ROOTFS_DIR}/etc/skel/.vimrc"
 
-# Install katusa CLI tool
+# Install katusa CLI and installer tools
 mkdir -p "${ROOTFS_DIR}/usr/local/bin"
 cp "${REPO_ROOT}/packages/katusa-cli/katusa" "${ROOTFS_DIR}/usr/local/bin/katusa"
 chmod +x "${ROOTFS_DIR}/usr/local/bin/katusa"
+cp "${REPO_ROOT}/packages/katusa-installer/katusa-install" "${ROOTFS_DIR}/usr/local/bin/katusa-install"
+chmod +x "${ROOTFS_DIR}/usr/local/bin/katusa-install"
 
 # Club share directory
 mkdir -p "${ROOTFS_DIR}/usr/share/katusa/examples"
