@@ -2,6 +2,7 @@
 > **Dedicated Custom Linux Operating System for the Katusa Programming Club**
 
 ![katusaOS Banner](https://img.shields.io/badge/katusaOS-v0.1.1--alpha-00ADB5?style=for-the-badge)
+
 ![Arch](https://img.shields.io/badge/Architecture-amd64%20%7C%20arm64-brightgreen?style=for-the-badge)
 ![Base](https://img.shields.io/badge/Base-Alpine%20Linux%203.20-0D597F?style=for-the-badge)
 ![Pkg Manager](https://img.shields.io/badge/Pkg%20Manager-apk-blueviolet?style=for-the-badge)
