@@ -27,6 +27,7 @@ BOOT_MODE="direct" # direct (kernel+initrd+disk) or disk
 
 TARGET_DISK=""
 USE_UEFI=false
+USE_BIOS=false
 
 print_usage() {
     echo "Usage: $0 [OPTIONS]"
@@ -38,6 +39,7 @@ print_usage() {
     echo "  -p, --port <port>         Host SSH forwarded port (default: ${SSH_PORT})"
     echo "  --target-disk <path>      Attach a second virtual disk for testing installation"
     echo "  --uefi                    Boot via UEFI firmware (simulates UTM)"
+    echo "  --bios, --legacy          Boot via Legacy BIOS (SeaBIOS MBR boot on amd64)"
     echo "  --gui                     Launch QEMU with graphical window instead of serial console"
     echo "  --nographic               Serial terminal console mode (default)"
     echo "  -h, --help                Show this help message"
@@ -72,6 +74,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --uefi)
             USE_UEFI=true
+            shift
+            ;;
+        --bios|--legacy)
+            USE_BIOS=true
             shift
             ;;
         --gui)
@@ -206,8 +212,11 @@ else
     KERNEL_APPEND="modules=ext4,virtio_pci,virtio_blk root=LABEL=katusa-root rootfstype=ext4 rw console=${CONSOLE} console=tty1 quiet"
 fi
 
-# UEFI or Direct kernel boot
-if [ "${USE_UEFI}" = "true" ]; then
+# UEFI, Legacy BIOS, or Direct kernel boot
+if [ "${USE_BIOS}" = "true" ]; then
+    echo "[+] Booting via Legacy BIOS (SeaBIOS MBR Boot)..."
+    BOOT_ARGS=()
+elif [ "${USE_UEFI}" = "true" ]; then
     UEFI_FW=""
     for cand in \
         "/Applications/UTM.app/Contents/Resources/qemu/edk2-aarch64-code.fd" \

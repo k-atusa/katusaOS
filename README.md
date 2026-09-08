@@ -137,23 +137,27 @@ make run-amd64       # AMD64 QEMU
 
 ### 4. Running in UTM App & Permanent Disk Installation (`katusa-install`)
 
-katusaOS provides a dedicated interactive **Terminal UI Installer (`katusa-install`)** and native UEFI bootloader support for virtualization apps like **UTM (macOS / iOS)**.
+katusaOS provides a dedicated interactive **Terminal UI Installer (`katusa-install`)** supporting both modern **GPT (UEFI)** and legacy **MBR (Legacy BIOS)** environments for virtualization apps like **UTM (macOS / iOS)**, **QEMU**, and physical drives.
 
-#### Method 1: Installing to Virtual Disk via Bootable ISO (Recommended for UTM)
+#### Method 1: Installing to Virtual Disk via Bootable ISO (Recommended for UTM / QEMU)
 1. In UTM, click **`+` (Create VM) -> Virtualize -> Linux**.
 2. Check **Boot ISO Image** and select `output/katusaOS-arm64-installer.iso` (or `amd64`).
 3. Set your desired disk size (e.g., 20GB - 64GB) and finish creating the VM.
-4. Start the VM. It boots via UEFI into the katusaOS live environment.
+4. Start the VM. It boots into the katusaOS live environment.
 5. In the terminal, run the interactive installer:
    ```bash
    katusa-install
    ```
 6. The installer TUI will guide you through:
    - Target disk selection (e.g. `/dev/vda` 64GB)
-   - Partitioning with GPT & FAT32 EFI System Partition (ESP)
+   - Partition scheme & bootloader selection:
+     - **GPT (UEFI)**: Modern GUID partition table with FAT32 ESP partition and UEFI bootloader.
+     - **MBR (Legacy BIOS)**: Classic MS-DOS partition table with active boot flag and MBR BIOS bootloader.
    - Formatting and copying system files
-   - Installing GRUB UEFI bootloader
-7. Once installation finishes, **detach/remove the ISO from UTM Drives** and restart the VM. Your VM now runs 100% permanently from your virtual disk!
+   - Generating system configuration and `/etc/fstab`
+7. Once installation finishes:
+   - **VM Environment**: Detach/remove the installer ISO from VM settings and reboot.
+   - **USB Boot / Physical Drive**: Detach the installation media and reboot.
 
 #### Method 2: Booting the GPT Disk Image Directly in UTM
 1. In UTM, create a Linux VM without an ISO.

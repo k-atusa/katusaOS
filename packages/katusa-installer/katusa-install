@@ -163,35 +163,55 @@ def get_available_disks():
     return disks
 
 
-def get_partition_names(disk_path):
-    """Return ESP and Root partition device paths for a given disk."""
-    # /dev/nvme0n1 -> /dev/nvme0n1p1, /dev/nvme0n1p2
-    # /dev/vda -> /dev/vda1, /dev/vda2
+def detect_system_boot_mode():
+    """Detect whether current live environment booted via UEFI or Legacy BIOS."""
+    if os.path.exists("/sys/firmware/efi"):
+        return "gpt"  # UEFI
+    return "mbr"      # Legacy BIOS
+
+
+def get_partition_names(disk_path, boot_mode="gpt"):
+    """
+    Return ESP and Root partition device paths for a given disk.
+    GPT mode: returns (esp_part, root_part) e.g. (/dev/vda1, /dev/vda2)
+    MBR mode: returns (None, root_part) where root_part is /dev/vda1
+    """
     if disk_path[-1].isdigit():
-        return f"{disk_path}p1", f"{disk_path}p2"
-    return f"{disk_path}1", f"{disk_path}2"
+        p1 = f"{disk_path}p1"
+        p2 = f"{disk_path}p2"
+    else:
+        p1 = f"{disk_path}1"
+        p2 = f"{disk_path}2"
+
+    if boot_mode == "mbr":
+        return None, p1
+    return p1, p2
 
 
-def perform_installation(target_disk, hostname="katusaOS", username="katusa", password="katusa", progress_cb=None):
+def perform_installation(target_disk, boot_mode="gpt", hostname="katusaOS", username="katusa", password="katusa", progress_cb=None):
     """
     Executes the full installation pipeline:
     1. Unmount existing partitions
-    2. Create GPT partition table (ESP 512MB + Root)
-    3. Format partitions (ESP FAT32 + Root ext4)
+    2. Create partition table (GPT for UEFI or MBR/msdos for Legacy BIOS)
+    3. Format partitions (Root ext4, and ESP FAT32 if GPT)
     4. Mount to /mnt/katusa-install
     5. Copy system files
     6. Configure fstab with UUIDs
-    7. Install GRUB UEFI bootloader
+    7. Install GRUB bootloader (UEFI or Legacy BIOS)
     8. Write grub.cfg
     9. Finalize and unmount
     """
+    boot_mode = (boot_mode or "gpt").lower()
+    if boot_mode not in ["gpt", "mbr"]:
+        boot_mode = "gpt"
+
     def update(step, total, text):
         if progress_cb:
             progress_cb(step, total, text)
         else:
             print(f"[{step}/{total}] {text}")
 
-    esp_part, root_part = get_partition_names(target_disk)
+    esp_part, root_part = get_partition_names(target_disk, boot_mode)
     mount_dir = "/mnt/katusa-install"
     total_steps = 9
 
@@ -202,29 +222,46 @@ def perform_installation(target_disk, hostname="katusaOS", username="katusa", pa
     run_cmd(f"wipefs -a {target_disk} 2>/dev/null || true", check=False)
 
     # Step 2: Partition with parted
-    update(2, total_steps, f"Creating GPT partition table on {target_disk}...")
-    run_cmd(f"parted -s {target_disk} mklabel gpt")
-    run_cmd(f"parted -s {target_disk} mkpart ESP fat32 1MiB 513MiB")
-    run_cmd(f"parted -s {target_disk} set 1 esp on")
-    run_cmd(f"parted -s {target_disk} mkpart root ext4 513MiB 100%")
-    run_cmd(f"partprobe {target_disk} 2>/dev/null || true", check=False)
-    run_cmd("mdev -s 2>/dev/null || true", check=False)
-    time.sleep(1)
-    if not os.path.exists(esp_part) or not os.path.exists(root_part):
+    if boot_mode == "mbr":
+        update(2, total_steps, f"Creating MBR (msdos) partition table on {target_disk}...")
+        run_cmd(f"parted -s {target_disk} mklabel msdos")
+        run_cmd(f"parted -s {target_disk} mkpart primary ext4 1MiB 100%")
+        run_cmd(f"parted -s {target_disk} set 1 boot on")
+        run_cmd(f"partprobe {target_disk} 2>/dev/null || true", check=False)
         run_cmd("mdev -s 2>/dev/null || true", check=False)
         time.sleep(1)
+        if not os.path.exists(root_part):
+            run_cmd("mdev -s 2>/dev/null || true", check=False)
+            time.sleep(1)
+    else:
+        update(2, total_steps, f"Creating GPT partition table on {target_disk}...")
+        run_cmd(f"parted -s {target_disk} mklabel gpt")
+        run_cmd(f"parted -s {target_disk} mkpart ESP fat32 1MiB 513MiB")
+        run_cmd(f"parted -s {target_disk} set 1 esp on")
+        run_cmd(f"parted -s {target_disk} mkpart root ext4 513MiB 100%")
+        run_cmd(f"partprobe {target_disk} 2>/dev/null || true", check=False)
+        run_cmd("mdev -s 2>/dev/null || true", check=False)
+        time.sleep(1)
+        if not os.path.exists(esp_part) or not os.path.exists(root_part):
+            run_cmd("mdev -s 2>/dev/null || true", check=False)
+            time.sleep(1)
 
     # Step 3: Format partitions
-    update(3, total_steps, f"Formatting ESP ({esp_part}) and Root ({root_part})...")
-    run_cmd(f"mkfs.vfat -F32 -n 'KATUSA-ESP' {esp_part}")
-    run_cmd(f"mkfs.ext4 -F -L 'katusa-root' {root_part}")
+    if boot_mode == "mbr":
+        update(3, total_steps, f"Formatting Root partition ({root_part})...")
+        run_cmd(f"mkfs.ext4 -F -L 'katusa-root' {root_part}")
+    else:
+        update(3, total_steps, f"Formatting ESP ({esp_part}) and Root ({root_part})...")
+        run_cmd(f"mkfs.vfat -F32 -n 'KATUSA-ESP' {esp_part}")
+        run_cmd(f"mkfs.ext4 -F -L 'katusa-root' {root_part}")
 
     # Step 4: Mount target partitions
     update(4, total_steps, "Mounting target filesystems...")
-    os.makedirs(f"{mount_dir}/boot/efi", exist_ok=True)
+    os.makedirs(mount_dir, exist_ok=True)
     run_cmd(f"mount {root_part} {mount_dir}")
-    os.makedirs(f"{mount_dir}/boot/efi", exist_ok=True)
-    run_cmd(f"mount {esp_part} {mount_dir}/boot/efi")
+    if boot_mode == "gpt":
+        os.makedirs(f"{mount_dir}/boot/efi", exist_ok=True)
+        run_cmd(f"mount {esp_part} {mount_dir}/boot/efi")
 
     # Step 5: Copy system files
     update(5, total_steps, "Copying katusaOS system files and toolchains (this may take a minute)...")
@@ -248,30 +285,54 @@ def perform_installation(target_disk, hostname="katusaOS", username="katusa", pa
     # Step 6: Generate /etc/fstab with UUIDs
     update(6, total_steps, "Configuring filesystem table (/etc/fstab)...")
     root_uuid = run_cmd(f"blkid -s UUID -o value {root_part}", check=False)
-    esp_uuid = run_cmd(f"blkid -s UUID -o value {esp_part}", check=False)
 
-    fstab_content = (
-        "# /etc/fstab: static file system information for katusaOS\n"
-        f"UUID={root_uuid}   /          ext4    noatime,rw   0   1\n"
-        f"UUID={esp_uuid}    /boot/efi  vfat    umask=0077   0   2\n"
-        "tmpfs              /tmp       tmpfs   defaults     0   0\n"
-    )
+    if boot_mode == "mbr":
+        fstab_content = (
+            "# /etc/fstab: static file system information for katusaOS (MBR Legacy BIOS)\n"
+            f"UUID={root_uuid}   /          ext4    noatime,rw   0   1\n"
+            "tmpfs              /tmp       tmpfs   defaults     0   0\n"
+        )
+    else:
+        esp_uuid = run_cmd(f"blkid -s UUID -o value {esp_part}", check=False)
+        fstab_content = (
+            "# /etc/fstab: static file system information for katusaOS (GPT UEFI)\n"
+            f"UUID={root_uuid}   /          ext4    noatime,rw   0   1\n"
+            f"UUID={esp_uuid}    /boot/efi  vfat    umask=0077   0   2\n"
+            "tmpfs              /tmp       tmpfs   defaults     0   0\n"
+        )
     with open(f"{mount_dir}/etc/fstab", "w") as f:
         f.write(fstab_content)
 
-    # Step 7: Install GRUB UEFI bootloader
-    update(7, total_steps, "Installing GRUB UEFI bootloader to ESP...")
+    # Step 7: Install GRUB bootloader
     arch = run_cmd("uname -m", check=False)
-    grub_target = "arm64-efi" if arch in ["aarch64", "arm64"] else "x86_64-efi"
-
-    run_cmd(
-        f"grub-install --target={grub_target} "
-        f"--efi-directory={mount_dir}/boot/efi "
-        f"--boot-directory={mount_dir}/boot "
-        f"--bootloader-id=katusaOS "
-        f"--removable --recheck",
-        check=False
-    )
+    if boot_mode == "mbr":
+        update(7, total_steps, f"Installing GRUB Legacy BIOS (MBR) bootloader to {target_disk}...")
+        if arch in ["aarch64", "arm64"]:
+            run_cmd(
+                f"grub-install --target=arm64-efi "
+                f"--boot-directory={mount_dir}/boot "
+                f"--bootloader-id=katusaOS "
+                f"--removable --recheck",
+                check=False
+            )
+        else:
+            run_cmd(
+                f"grub-install --target=i386-pc "
+                f"--boot-directory={mount_dir}/boot "
+                f"--recheck {target_disk}",
+                check=False
+            )
+    else:
+        update(7, total_steps, "Installing GRUB UEFI bootloader to ESP...")
+        grub_target = "arm64-efi" if arch in ["aarch64", "arm64"] else "x86_64-efi"
+        run_cmd(
+            f"grub-install --target={grub_target} "
+            f"--efi-directory={mount_dir}/boot/efi "
+            f"--boot-directory={mount_dir}/boot "
+            f"--bootloader-id=katusaOS "
+            f"--removable --recheck",
+            check=False
+        )
 
     # Step 8: Configure grub.cfg and host settings
     update(8, total_steps, "Generating GRUB configuration and finalizing system...")
@@ -282,6 +343,7 @@ set default=0
 set timeout=3
 
 insmod part_gpt
+insmod part_msdos
 insmod ext2
 insmod fat
 insmod all_video
@@ -301,13 +363,14 @@ menuentry 'katusaOS (Fallback Recovery)' {{
     with open(f"{mount_dir}/boot/grub/grub.cfg", "w") as f:
         f.write(grub_cfg)
 
-    # Also write to ESP partition for maximum UEFI compatibility
-    os.makedirs(f"{mount_dir}/boot/efi/EFI/BOOT", exist_ok=True)
-    os.makedirs(f"{mount_dir}/boot/efi/boot/grub", exist_ok=True)
-    with open(f"{mount_dir}/boot/efi/EFI/BOOT/grub.cfg", "w") as f:
-        f.write(grub_cfg)
-    with open(f"{mount_dir}/boot/efi/boot/grub/grub.cfg", "w") as f:
-        f.write(grub_cfg)
+    if boot_mode == "gpt":
+        # Also write to ESP partition for maximum UEFI compatibility
+        os.makedirs(f"{mount_dir}/boot/efi/EFI/BOOT", exist_ok=True)
+        os.makedirs(f"{mount_dir}/boot/efi/boot/grub", exist_ok=True)
+        with open(f"{mount_dir}/boot/efi/EFI/BOOT/grub.cfg", "w") as f:
+            f.write(grub_cfg)
+        with open(f"{mount_dir}/boot/efi/boot/grub/grub.cfg", "w") as f:
+            f.write(grub_cfg)
 
     # Write hostname
     with open(f"{mount_dir}/etc/hostname", "w") as f:
@@ -317,6 +380,7 @@ menuentry 'katusaOS (Fallback Recovery)' {{
     with open(f"{mount_dir}/etc/katusa-installed", "w") as f:
         f.write(f"INSTALLED_DATE={time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime())}\n")
         f.write(f"TARGET_DISK={target_disk}\n")
+        f.write(f"BOOT_MODE={boot_mode.upper()}\n")
         f.write(f"ROOT_UUID={root_uuid}\n")
 
     # Clean login issue banner and MOTD on target disk (remove installer prompt & default credentials)
@@ -365,7 +429,7 @@ menuentry 'katusaOS (Fallback Recovery)' {{
 # Curses Terminal User Interface (TUI)
 # ==============================================================================
 
-def run_curses_gui(stdscr):
+def run_curses_gui(stdscr, initial_mode="auto"):
     import curses
 
     def safe_curs_set(vis):
@@ -488,33 +552,91 @@ def run_curses_gui(stdscr):
         elif key in [ord('q'), 27]:
             return False
 
+    # Screen 2b: Boot Mode & Partition Table Selection
+    boot_modes = [
+        {
+            "id": "gpt",
+            "name": "GPT (UEFI)",
+            "desc": "Modern GUID Partition Table for UEFI firmware (UTM, Modern PCs)"
+        },
+        {
+            "id": "mbr",
+            "name": "MBR (Legacy BIOS)",
+            "desc": "Classic MS-DOS partition table for Legacy BIOS / CSM / SeaBIOS"
+        }
+    ]
+    detected_mode = detect_system_boot_mode()
+    if initial_mode == "mbr":
+        mode_idx = 1
+    elif initial_mode == "gpt":
+        mode_idx = 0
+    else:
+        mode_idx = 0 if detected_mode == "gpt" else 1
+
+    selected_boot_mode = boot_modes[mode_idx]["id"]
+    while True:
+        stdscr.clear()
+        h, w = stdscr.getmaxyx()
+
+        title = "★ Step 2: Select Partition Scheme & Boot Mode ★"
+        safe_addstr(2, max(0, (w - len(title)) // 2), title, curses.color_pair(1) | curses.A_BOLD)
+        desc = "Choose the partition table and bootloader type for the target disk."
+        safe_addstr(4, max(0, (w - len(desc)) // 2), desc, curses.A_DIM)
+
+        start_y = 7
+        for i, m in enumerate(boot_modes):
+            prefix = "  [>] " if i == mode_idx else "      "
+            detected_tag = "  (Detected System Firmware)" if m["id"] == detected_mode else ""
+            line = f"{prefix}{m['name']:<20}{detected_tag}"
+            attr = curses.color_pair(2) if i == mode_idx else curses.A_NORMAL
+            safe_addstr(start_y + i * 3, max(4, (w - 70) // 2), line, attr)
+            safe_addstr(start_y + i * 3 + 1, max(4, (w - 70) // 2) + 6, m["desc"], curses.A_DIM)
+
+        hint = "Enter: Select Mode  |  UP/DOWN: Navigate  |  q: Cancel & Exit"
+        safe_addstr(h - 2, max(0, (w - len(hint)) // 2), hint, curses.A_DIM)
+        stdscr.refresh()
+
+        key = stdscr.getch()
+        if key in [curses.KEY_UP, ord('k')]:
+            mode_idx = (mode_idx - 1) % len(boot_modes)
+        elif key in [curses.KEY_DOWN, ord('j')]:
+            mode_idx = (mode_idx + 1) % len(boot_modes)
+        elif key in [10, 13]: # Enter
+            selected_boot_mode = boot_modes[mode_idx]["id"]
+            break
+        elif key in [ord('q'), 27]:
+            return False
+
     # Screen 3: Confirmation Dialog
     stdscr.clear()
     h, w = stdscr.getmaxyx()
 
-    box_w = 64
-    box_h = 14
+    box_w = 66
+    box_h = 16
     box_x = max(0, (w - box_w) // 2)
     box_y = max(0, (h - box_h) // 2)
 
+    mode_label = "GPT (UEFI)" if selected_boot_mode == "gpt" else "MBR (Legacy BIOS)"
     warn_title = "⚠ WARNING: DATA DESTRUCTION CONFIRMATION ⚠"
-    warn_text1 = f"All data on {target_disk['path']} ({target_disk['size_gb']} GiB) will be PERMANENTLY ERASED!"
-    warn_text2 = "A new GPT partition table, EFI ESP, and rootfs will be created."
+    warn_text1 = f"Target: {target_disk['path']} ({target_disk['size_gb']} GiB)  |  Scheme: {mode_label}"
+    warn_text2 = f"All data on {target_disk['path']} will be PERMANENTLY ERASED!"
+    warn_text3 = f"A fresh {selected_boot_mode.upper()} partition layout and katusaOS will be installed."
     prompt = "Type 'YES' to proceed with installation, or 'NO' to abort:"
 
     safe_addstr(box_y, max(0, (w - len(warn_title)) // 2), warn_title, curses.color_pair(3) | curses.A_BOLD)
     safe_addstr(box_y + 2, box_x + 2, warn_text1, curses.A_BOLD)
-    safe_addstr(box_y + 4, box_x + 2, warn_text2, curses.color_pair(5))
-    safe_addstr(box_y + 6, box_x + 2, prompt, curses.A_BOLD)
+    safe_addstr(box_y + 4, box_x + 2, warn_text2, curses.color_pair(3))
+    safe_addstr(box_y + 5, box_x + 2, warn_text3, curses.color_pair(5))
+    safe_addstr(box_y + 7, box_x + 2, prompt, curses.A_BOLD)
 
     # Input prompt
     try:
         curses.echo()
         safe_curs_set(1)
-        safe_addstr(box_y + 8, box_x + 2, "Confirmation: ")
+        safe_addstr(box_y + 9, box_x + 2, "Confirmation: ")
         stdscr.refresh()
         input_x = min(box_x + 16, max(0, w - 12))
-        user_input = stdscr.getstr(box_y + 8, input_x, 10).decode("utf-8", errors="ignore").strip()
+        user_input = stdscr.getstr(box_y + 9, input_x, 10).decode("utf-8", errors="ignore").strip()
     finally:
         curses.noecho()
         safe_curs_set(0)
@@ -559,7 +681,7 @@ def run_curses_gui(stdscr):
         stdscr.refresh()
 
     try:
-        perform_installation(target_disk["path"], progress_cb=progress_callback)
+        perform_installation(target_disk["path"], boot_mode=selected_boot_mode, progress_cb=progress_callback)
     except Exception as e:
         stdscr.clear()
         err = f"Installation Failed: {str(e)}"
@@ -575,7 +697,7 @@ def run_curses_gui(stdscr):
     succ_title = "🎉 katusaOS Installation Complete! 🎉"
     safe_addstr(h // 2 - 5, max(0, (w - len(succ_title)) // 2), succ_title, curses.color_pair(4) | curses.A_BOLD)
 
-    info1 = f"katusaOS has been installed successfully onto {target_disk['path']}."
+    info1 = f"katusaOS has been installed successfully onto {target_disk['path']} ({mode_label})."
     info2 = "Next steps before rebooting:"
     info3 = "• VM Environment: Detach installer ISO from VM settings, then reboot."
     info4 = "• USB Boot / PC : Detach installation media (USB drive), then reboot."
@@ -606,6 +728,10 @@ def run_curses_gui(stdscr):
 def main():
     parser = argparse.ArgumentParser(description="katusaOS Disk Installer (VM & Physical Drive)")
     parser.add_argument("--target", "-t", help="Target disk path (e.g. /dev/vda, /dev/sda)")
+    parser.add_argument("--mode", "--boot-mode", choices=["auto", "gpt", "mbr"], default="auto",
+                        help="Partition table and boot mode: gpt (UEFI), mbr (Legacy BIOS), or auto (default: auto)")
+    parser.add_argument("--mbr", action="store_true", help="Install using Legacy MBR (msdos) partition table & BIOS bootloader")
+    parser.add_argument("--gpt", action="store_true", help="Install using GPT partition table & UEFI bootloader")
     parser.add_argument("--yes", "-y", action="store_true", help="Automatically confirm wiping target disk")
     parser.add_argument("--list-disks", "-l", action="store_true", help="List available target disks and exit")
     parser.add_argument("--cli", action="store_true", help="Force text CLI mode instead of curses TUI")
@@ -632,6 +758,14 @@ def main():
             print("[-] Error: katusa-install must be run as root (use 'sudo katusa-install').", file=sys.stderr)
             sys.exit(1)
 
+    chosen_mode = "auto"
+    if args.mbr:
+        chosen_mode = "mbr"
+    elif args.gpt:
+        chosen_mode = "gpt"
+    elif args.mode != "auto":
+        chosen_mode = args.mode
+
     if args.list_disks:
         disks = get_available_disks()
         print("Available Target Disks:")
@@ -642,23 +776,26 @@ def main():
 
     # Automated non-interactive mode
     if args.target:
+        target_mode = detect_system_boot_mode() if chosen_mode == "auto" else chosen_mode
+        mode_label = "GPT (UEFI)" if target_mode == "gpt" else "MBR (Legacy BIOS)"
         if not args.yes:
             print(f"[!] WARNING: Target disk {args.target} will be completely ERASED.")
+            print(f"[!] Partition Table & Boot Mode: {mode_label}")
             confirm = input("Type 'YES' to confirm: ").strip()
             if confirm.upper() != "YES":
                 print("[-] Aborted by user.")
                 sys.exit(1)
 
-        print(f"[+] Starting automated installation onto {args.target}...")
-        perform_installation(args.target)
-        print(f"[✓] katusaOS installed successfully on {args.target}!")
+        print(f"[+] Starting automated installation onto {args.target} ({mode_label})...")
+        perform_installation(args.target, boot_mode=target_mode)
+        print(f"[✓] katusaOS installed successfully on {args.target} ({mode_label})!")
         sys.exit(0)
 
     # If terminal supports curses and not forced to CLI
     if not args.cli and sys.stdin.isatty():
         try:
             import curses
-            result = curses.wrapper(run_curses_gui)
+            result = curses.wrapper(lambda s: run_curses_gui(s, initial_mode=chosen_mode))
             if result == "reboot":
                 print("\n[+] Installation complete. Rebooting system now...")
                 run_cmd("reboot 2>/dev/null || true", check=False)
@@ -697,14 +834,34 @@ def main():
             pass
         print("Invalid selection, please try again.")
 
+    if chosen_mode != "auto":
+        selected_mode = chosen_mode
+    else:
+        detected = detect_system_boot_mode()
+        print("\nSelect Partition Table & Bootloader Type:")
+        gpt_tag = " (Detected System Firmware)" if detected == "gpt" else ""
+        mbr_tag = " (Detected System Firmware)" if detected == "mbr" else ""
+        print(f"  [1] GPT (UEFI) - Modern GUID partition table{gpt_tag}")
+        print(f"  [2] MBR (Legacy BIOS) - Classic MS-DOS partition table{mbr_tag}")
+        default_choice = "1" if detected == "gpt" else "2"
+        mode_input = input(f"Select mode [1/2, default {default_choice}]: ").strip()
+        if mode_input == "2":
+            selected_mode = "mbr"
+        elif mode_input == "1":
+            selected_mode = "gpt"
+        else:
+            selected_mode = detected
+
+    mode_label = "GPT (UEFI)" if selected_mode == "gpt" else "MBR (Legacy BIOS)"
     print(f"\n[!] WARNING: All data on {selected['path']} ({selected['size_gb']} GiB) will be DESTROYED!")
+    print(f"[!] Target Partition Scheme & Bootloader: {mode_label}")
     confirm = input("Type 'YES' to proceed: ").strip()
     if confirm.upper() != "YES":
         print("[-] Installation aborted.")
         sys.exit(1)
 
-    perform_installation(selected["path"])
-    print(f"\n[✓] katusaOS successfully installed to {selected['path']}!")
+    perform_installation(selected["path"], boot_mode=selected_mode)
+    print(f"\n[✓] katusaOS successfully installed to {selected['path']} ({mode_label})!")
     print("\nNext steps before rebooting:")
     print("  • VM Environment: Detach installer ISO from VM settings, then reboot.")
     print("  • USB Boot / PC : Detach installation media (USB drive), then reboot.")

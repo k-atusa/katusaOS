@@ -88,6 +88,11 @@ BASE_PACKAGES=(
     rsync
 )
 
+# On x86_64, include grub-bios for Legacy BIOS / MBR partition support
+if [ "${ALPINE_ARCH}" = "x86_64" ]; then
+    BASE_PACKAGES+=(grub-bios)
+fi
+
 DEVELOPER_PACKAGES=(
     build-base
     gcc
