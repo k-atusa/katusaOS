@@ -393,13 +393,22 @@ def run_curses_gui(stdscr):
         try:
             curses.start_color()
             curses.use_default_colors()
+            fg_black = curses.COLOR_BLACK
+            bg_white = curses.COLOR_WHITE
+            if curses.COLORS >= 256:
+                fg_black = 16   # True pitch black (#000000)
+                bg_white = 231  # True bright white (#ffffff)
+            curses.init_pair(1, curses.COLOR_CYAN, -1)
+            curses.init_pair(2, fg_black, bg_white)
+            curses.init_pair(3, curses.COLOR_RED, -1)
+            curses.init_pair(4, curses.COLOR_GREEN, -1)
+            curses.init_pair(5, curses.COLOR_YELLOW, -1)
+        except Exception:
             curses.init_pair(1, curses.COLOR_CYAN, -1)
             curses.init_pair(2, curses.COLOR_BLACK, curses.COLOR_WHITE)
             curses.init_pair(3, curses.COLOR_RED, -1)
             curses.init_pair(4, curses.COLOR_GREEN, -1)
             curses.init_pair(5, curses.COLOR_YELLOW, -1)
-        except Exception:
-            pass
 
     # Screen 1: Welcome
     while True:
@@ -418,7 +427,7 @@ def run_curses_gui(stdscr):
         safe_addstr(intro_y + 1, max(0, (w - 60) // 2), "Install katusaOS permanently to your virtual disk or drive.", curses.color_pair(5))
 
         btn = "[ Press ENTER to Begin Installation ]"
-        safe_addstr(intro_y + 4, max(0, (w - len(btn)) // 2), btn, curses.color_pair(2) | curses.A_BOLD)
+        safe_addstr(intro_y + 4, max(0, (w - len(btn)) // 2), btn, curses.color_pair(2))
 
         quit_hint = "Press 'q' or 'ESC' to exit to shell"
         safe_addstr(intro_y + 6, max(0, (w - len(quit_hint)) // 2), quit_hint, curses.A_DIM)
@@ -459,8 +468,8 @@ def run_curses_gui(stdscr):
             prefix = "  [>] " if i == selected_idx else "      "
             boot_tag = " (Current Live Disk - CAUTION)" if d["is_booted"] else ""
             line = f"{prefix}{d['path']:<12} {d['size_gb']:>6.1f} GiB  |  {d['model']}{boot_tag}"
-            attr = curses.color_pair(2) | curses.A_BOLD if i == selected_idx else curses.A_NORMAL
-            if d["is_booted"]:
+            attr = curses.color_pair(2) if i == selected_idx else curses.A_NORMAL
+            if d["is_booted"] and i != selected_idx:
                 attr |= curses.color_pair(3)
             safe_addstr(start_y + i * 2, max(4, (w - 70) // 2), line, attr)
 
@@ -577,7 +586,7 @@ def run_curses_gui(stdscr):
     safe_addstr(h // 2 + 2, max(0, (w - len(info4)) // 2), info4)
 
     btn = "[ Press ENTER to Reboot Now  |  Press 'q' for Terminal ]"
-    safe_addstr(h // 2 + 5, max(0, (w - len(btn)) // 2), btn, curses.color_pair(2) | curses.A_BOLD)
+    safe_addstr(h // 2 + 5, max(0, (w - len(btn)) // 2), btn, curses.color_pair(2))
     stdscr.refresh()
 
     while True:
