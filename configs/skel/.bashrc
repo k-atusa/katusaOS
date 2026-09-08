@@ -7,6 +7,11 @@ case $- in
       *) return;;
 esac
 
+# Terminal normalization for UTM / QEMU serial consoles
+if [ "$TERM" = "vt100" ] || [ -z "$TERM" ]; then
+    export TERM=linux
+fi
+
 # History control
 HISTCONTROL=ignoreboth
 HISTSIZE=5000

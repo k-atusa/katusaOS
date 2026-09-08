@@ -356,22 +356,38 @@ menuentry 'katusaOS (Fallback Recovery)' {{
 def run_curses_gui(stdscr):
     import curses
 
-    # Setup colors and cursor
-    curses.curs_set(0)
-    curses.start_color()
-    curses.use_default_colors()
+    def safe_curs_set(vis):
+        """Safely set cursor state without failing on terminals that lack civis/cnorm."""
+        try:
+            curses.curs_set(vis)
+        except Exception:
+            pass
 
-    # Color pairs
-    # 1: Title / Cyan
-    # 2: Highlight / Selected (Black on Cyan)
-    # 3: Warning / Red or Yellow
-    # 4: Success / Green
-    # 5: Dim / Gray
-    curses.init_pair(1, curses.COLOR_CYAN, -1)
-    curses.init_pair(2, curses.COLOR_BLACK, curses.COLOR_CYAN)
-    curses.init_pair(3, curses.COLOR_RED, -1)
-    curses.init_pair(4, curses.COLOR_GREEN, -1)
-    curses.init_pair(5, curses.COLOR_YELLOW, -1)
+    def safe_addstr(y, x, text, attr=curses.A_NORMAL):
+        """Safely draw text within terminal bounds without triggering curses ERR."""
+        try:
+            cur_h, cur_w = stdscr.getmaxyx()
+            if 0 <= y < cur_h and 0 <= x < cur_w:
+                # Leave 1 column free on the very last line to prevent scroll/ERR
+                max_len = cur_w - x - (1 if y == cur_h - 1 else 0)
+                if max_len > 0:
+                    stdscr.addstr(y, x, text[:max_len], attr)
+        except Exception:
+            pass
+
+    # Setup colors and cursor
+    safe_curs_set(0)
+    if curses.has_colors():
+        try:
+            curses.start_color()
+            curses.use_default_colors()
+            curses.init_pair(1, curses.COLOR_CYAN, -1)
+            curses.init_pair(2, curses.COLOR_BLACK, curses.COLOR_CYAN)
+            curses.init_pair(3, curses.COLOR_RED, -1)
+            curses.init_pair(4, curses.COLOR_GREEN, -1)
+            curses.init_pair(5, curses.COLOR_YELLOW, -1)
+        except Exception:
+            pass
 
     # Screen 1: Welcome
     while True:
@@ -382,18 +398,18 @@ def run_curses_gui(stdscr):
         title_line1 = "katusaOS Disk Installer"
         title_line2 = "★ Katusa Programming Club Dedicated Operating System ★"
         start_y = max(2, (h - 16) // 2)
-        stdscr.addstr(start_y, max(0, (w - len(title_line1)) // 2), title_line1, curses.color_pair(1) | curses.A_BOLD)
-        stdscr.addstr(start_y + 1, max(0, (w - len(title_line2)) // 2), title_line2, curses.color_pair(3) | curses.A_BOLD)
+        safe_addstr(start_y, max(0, (w - len(title_line1)) // 2), title_line1, curses.color_pair(1) | curses.A_BOLD)
+        safe_addstr(start_y + 1, max(0, (w - len(title_line2)) // 2), title_line2, curses.color_pair(3) | curses.A_BOLD)
 
         intro_y = start_y + 4
-        stdscr.addstr(intro_y, max(0, (w - 44) // 2), "Welcome to the katusaOS Disk Installer!", curses.A_BOLD)
-        stdscr.addstr(intro_y + 1, max(0, (w - 62) // 2), "Install katusaOS permanently to your UTM virtual disk or drive.", curses.color_pair(5))
+        safe_addstr(intro_y, max(0, (w - 44) // 2), "Welcome to the katusaOS Disk Installer!", curses.A_BOLD)
+        safe_addstr(intro_y + 1, max(0, (w - 62) // 2), "Install katusaOS permanently to your UTM virtual disk or drive.", curses.color_pair(5))
 
         btn = "[ Press ENTER to Begin Installation ]"
-        stdscr.addstr(intro_y + 4, max(0, (w - len(btn)) // 2), btn, curses.color_pair(2) | curses.A_BOLD)
+        safe_addstr(intro_y + 4, max(0, (w - len(btn)) // 2), btn, curses.color_pair(2) | curses.A_BOLD)
 
         quit_hint = "Press 'q' or 'ESC' to exit to shell"
-        stdscr.addstr(intro_y + 6, max(0, (w - len(quit_hint)) // 2), quit_hint, curses.A_DIM)
+        safe_addstr(intro_y + 6, max(0, (w - len(quit_hint)) // 2), quit_hint, curses.A_DIM)
 
         stdscr.refresh()
         key = stdscr.getch()
@@ -409,9 +425,9 @@ def run_curses_gui(stdscr):
         h, w = stdscr.getmaxyx()
         msg = "No suitable target disks detected!"
         hint = "Ensure a virtual drive is attached in UTM (e.g. VirtIO 20GB+)."
-        stdscr.addstr(h // 2 - 1, max(0, (w - len(msg)) // 2), msg, curses.color_pair(3) | curses.A_BOLD)
-        stdscr.addstr(h // 2 + 1, max(0, (w - len(hint)) // 2), hint)
-        stdscr.addstr(h // 2 + 3, max(0, (w - 24) // 2), "Press any key to exit...", curses.A_DIM)
+        safe_addstr(h // 2 - 1, max(0, (w - len(msg)) // 2), msg, curses.color_pair(3) | curses.A_BOLD)
+        safe_addstr(h // 2 + 1, max(0, (w - len(hint)) // 2), hint)
+        safe_addstr(h // 2 + 3, max(0, (w - 24) // 2), "Press any key to exit...", curses.A_DIM)
         stdscr.refresh()
         stdscr.getch()
         return False
@@ -422,9 +438,9 @@ def run_curses_gui(stdscr):
         h, w = stdscr.getmaxyx()
 
         title = "★ Step 1: Select Target Disk for Installation ★"
-        stdscr.addstr(2, max(0, (w - len(title)) // 2), title, curses.color_pair(1) | curses.A_BOLD)
+        safe_addstr(2, max(0, (w - len(title)) // 2), title, curses.color_pair(1) | curses.A_BOLD)
         desc = "Use UP/DOWN arrows to choose disk, then press ENTER to select."
-        stdscr.addstr(4, max(0, (w - len(desc)) // 2), desc, curses.A_DIM)
+        safe_addstr(4, max(0, (w - len(desc)) // 2), desc, curses.A_DIM)
 
         start_y = 6
         for i, d in enumerate(disks):
@@ -434,10 +450,10 @@ def run_curses_gui(stdscr):
             attr = curses.color_pair(2) | curses.A_BOLD if i == selected_idx else curses.A_NORMAL
             if d["is_booted"]:
                 attr |= curses.color_pair(3)
-            stdscr.addstr(start_y + i * 2, max(4, (w - 70) // 2), line[:w-5], attr)
+            safe_addstr(start_y + i * 2, max(4, (w - 70) // 2), line, attr)
 
         hint = "Enter: Select Disk  |  q: Cancel & Exit"
-        stdscr.addstr(h - 2, max(0, (w - len(hint)) // 2), hint, curses.A_DIM)
+        safe_addstr(h - 2, max(0, (w - len(hint)) // 2), hint, curses.A_DIM)
         stdscr.refresh()
 
         key = stdscr.getch()
@@ -465,23 +481,26 @@ def run_curses_gui(stdscr):
     warn_text2 = "A new GPT partition table, EFI ESP, and rootfs will be created."
     prompt = "Type 'YES' to proceed with installation, or 'NO' to abort:"
 
-    stdscr.addstr(box_y, max(0, (w - len(warn_title)) // 2), warn_title, curses.color_pair(3) | curses.A_BOLD)
-    stdscr.addstr(box_y + 2, box_x + 2, warn_text1, curses.A_BOLD)
-    stdscr.addstr(box_y + 4, box_x + 2, warn_text2, curses.color_pair(5))
-    stdscr.addstr(box_y + 6, box_x + 2, prompt, curses.A_BOLD)
+    safe_addstr(box_y, max(0, (w - len(warn_title)) // 2), warn_title, curses.color_pair(3) | curses.A_BOLD)
+    safe_addstr(box_y + 2, box_x + 2, warn_text1, curses.A_BOLD)
+    safe_addstr(box_y + 4, box_x + 2, warn_text2, curses.color_pair(5))
+    safe_addstr(box_y + 6, box_x + 2, prompt, curses.A_BOLD)
 
     # Input prompt
-    curses.echo()
-    curses.curs_set(1)
-    stdscr.addstr(box_y + 8, box_x + 2, "Confirmation: ")
-    stdscr.refresh()
-    user_input = stdscr.getstr(box_y + 8, box_x + 16, 10).decode("utf-8").strip()
-    curses.noecho()
-    curses.curs_set(0)
+    try:
+        curses.echo()
+        safe_curs_set(1)
+        safe_addstr(box_y + 8, box_x + 2, "Confirmation: ")
+        stdscr.refresh()
+        input_x = min(box_x + 16, max(0, w - 12))
+        user_input = stdscr.getstr(box_y + 8, input_x, 10).decode("utf-8", errors="ignore").strip()
+    finally:
+        curses.noecho()
+        safe_curs_set(0)
 
     if user_input.upper() != "YES":
         stdscr.clear()
-        stdscr.addstr(h // 2, max(0, (w - 30) // 2), "Installation aborted by user.", curses.color_pair(3))
+        safe_addstr(h // 2, max(0, (w - 30) // 2), "Installation aborted by user.", curses.color_pair(3))
         stdscr.refresh()
         time.sleep(1.5)
         return False
@@ -489,20 +508,20 @@ def run_curses_gui(stdscr):
     # Screen 4: Progress Execution
     stdscr.clear()
     title = "★ Installing katusaOS to Target Disk ★"
-    stdscr.addstr(2, max(0, (w - len(title)) // 2), title, curses.color_pair(1) | curses.A_BOLD)
+    safe_addstr(2, max(0, (w - len(title)) // 2), title, curses.color_pair(1) | curses.A_BOLD)
     stdscr.refresh()
 
     steps_log = []
     def progress_callback(step, total, text):
         stdscr.clear()
-        stdscr.addstr(2, max(0, (w - len(title)) // 2), title, curses.color_pair(1) | curses.A_BOLD)
+        safe_addstr(2, max(0, (w - len(title)) // 2), title, curses.color_pair(1) | curses.A_BOLD)
 
         # Progress bar
         percent = int((step / total) * 100)
         bar_len = 40
         filled = int((percent / 100) * bar_len)
         bar_str = f"[{'█' * filled}{'░' * (bar_len - filled)}] {percent}%"
-        stdscr.addstr(4, max(0, (w - len(bar_str)) // 2), bar_str, curses.color_pair(1) | curses.A_BOLD)
+        safe_addstr(4, max(0, (w - len(bar_str)) // 2), bar_str, curses.color_pair(1) | curses.A_BOLD)
 
         # Steps list
         steps_log.append((step, text))
@@ -514,7 +533,7 @@ def run_curses_gui(stdscr):
             else:
                 prefix = "  [✔] "
                 attr = curses.color_pair(4)
-            stdscr.addstr(start_y + s_idx, max(4, (w - 60) // 2), f"{prefix}{s_text}"[:w-5], attr)
+            safe_addstr(start_y + s_idx, max(4, (w - 60) // 2), f"{prefix}{s_text}", attr)
 
         stdscr.refresh()
 
@@ -523,8 +542,8 @@ def run_curses_gui(stdscr):
     except Exception as e:
         stdscr.clear()
         err = f"Installation Failed: {str(e)}"
-        stdscr.addstr(h // 2 - 1, max(0, (w - len(err)) // 2), err, curses.color_pair(3) | curses.A_BOLD)
-        stdscr.addstr(h // 2 + 2, max(0, (w - 24) // 2), "Press any key to exit...", curses.A_DIM)
+        safe_addstr(h // 2 - 1, max(0, (w - len(err)) // 2), err, curses.color_pair(3) | curses.A_BOLD)
+        safe_addstr(h // 2 + 2, max(0, (w - 24) // 2), "Press any key to exit...", curses.A_DIM)
         stdscr.refresh()
         stdscr.getch()
         return False
@@ -533,7 +552,7 @@ def run_curses_gui(stdscr):
     stdscr.clear()
     h, w = stdscr.getmaxyx()
     succ_title = "🎉 katusaOS Installation Complete! 🎉"
-    stdscr.addstr(h // 2 - 4, max(0, (w - len(succ_title)) // 2), succ_title, curses.color_pair(4) | curses.A_BOLD)
+    safe_addstr(h // 2 - 4, max(0, (w - len(succ_title)) // 2), succ_title, curses.color_pair(4) | curses.A_BOLD)
 
     info1 = f"katusaOS has been installed successfully onto {target_disk['path']}."
     info2 = "Next steps for UTM App users:"
@@ -541,14 +560,14 @@ def run_curses_gui(stdscr):
     info4 = "2. Reboot the virtual machine to boot directly from your new disk!"
     info5 = "Default User: katusa  |  Password: katusa"
 
-    stdscr.addstr(h // 2 - 2, max(0, (w - len(info1)) // 2), info1)
-    stdscr.addstr(h // 2, max(0, (w - len(info2)) // 2), info2, curses.color_pair(1))
-    stdscr.addstr(h // 2 + 1, max(0, (w - len(info3)) // 2), info3)
-    stdscr.addstr(h // 2 + 2, max(0, (w - len(info4)) // 2), info4)
-    stdscr.addstr(h // 2 + 4, max(0, (w - len(info5)) // 2), info5, curses.color_pair(5) | curses.A_BOLD)
+    safe_addstr(h // 2 - 2, max(0, (w - len(info1)) // 2), info1)
+    safe_addstr(h // 2, max(0, (w - len(info2)) // 2), info2, curses.color_pair(1))
+    safe_addstr(h // 2 + 1, max(0, (w - len(info3)) // 2), info3)
+    safe_addstr(h // 2 + 2, max(0, (w - len(info4)) // 2), info4)
+    safe_addstr(h // 2 + 4, max(0, (w - len(info5)) // 2), info5, curses.color_pair(5) | curses.A_BOLD)
 
     btn = "[ Press ENTER to Reboot Now  |  Press 'q' for Terminal ]"
-    stdscr.addstr(h // 2 + 7, max(0, (w - len(btn)) // 2), btn, curses.color_pair(2) | curses.A_BOLD)
+    safe_addstr(h // 2 + 7, max(0, (w - len(btn)) // 2), btn, curses.color_pair(2) | curses.A_BOLD)
     stdscr.refresh()
 
     while True:

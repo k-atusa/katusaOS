@@ -217,9 +217,9 @@ cat << 'EOF' > "${ROOTFS_DIR}/etc/inittab"
 ::wait:/sbin/openrc default
 
 # Set up a generic prompt on the serial ports
-ttyS0::respawn:/sbin/getty -L 115200 ttyS0 vt100
-ttyAMA0::respawn:/sbin/getty -L 115200 ttyAMA0 vt100
-tty1::respawn:/sbin/getty 38400 tty1
+ttyS0::respawn:/sbin/getty -L 115200 ttyS0 linux
+ttyAMA0::respawn:/sbin/getty -L 115200 ttyAMA0 linux
+tty1::respawn:/sbin/getty 38400 tty1 linux
 
 # Stuff to do for the 3-finger salute
 ::ctrlaltdel:/sbin/reboot
