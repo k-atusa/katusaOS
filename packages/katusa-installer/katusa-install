@@ -394,7 +394,7 @@ def run_curses_gui(stdscr):
             curses.start_color()
             curses.use_default_colors()
             curses.init_pair(1, curses.COLOR_CYAN, -1)
-            curses.init_pair(2, curses.COLOR_BLACK, curses.COLOR_CYAN)
+            curses.init_pair(2, curses.COLOR_BLACK, curses.COLOR_WHITE)
             curses.init_pair(3, curses.COLOR_RED, -1)
             curses.init_pair(4, curses.COLOR_GREEN, -1)
             curses.init_pair(5, curses.COLOR_YELLOW, -1)
@@ -415,7 +415,7 @@ def run_curses_gui(stdscr):
 
         intro_y = start_y + 4
         safe_addstr(intro_y, max(0, (w - 44) // 2), "Welcome to the katusaOS Disk Installer!", curses.A_BOLD)
-        safe_addstr(intro_y + 1, max(0, (w - 62) // 2), "Install katusaOS permanently to your UTM virtual disk or drive.", curses.color_pair(5))
+        safe_addstr(intro_y + 1, max(0, (w - 60) // 2), "Install katusaOS permanently to your virtual disk or drive.", curses.color_pair(5))
 
         btn = "[ Press ENTER to Begin Installation ]"
         safe_addstr(intro_y + 4, max(0, (w - len(btn)) // 2), btn, curses.color_pair(2) | curses.A_BOLD)
@@ -436,7 +436,7 @@ def run_curses_gui(stdscr):
         stdscr.clear()
         h, w = stdscr.getmaxyx()
         msg = "No suitable target disks detected!"
-        hint = "Ensure a virtual drive is attached in UTM (e.g. VirtIO 20GB+)."
+        hint = "Ensure a virtual disk or drive is attached."
         safe_addstr(h // 2 - 1, max(0, (w - len(msg)) // 2), msg, curses.color_pair(3) | curses.A_BOLD)
         safe_addstr(h // 2 + 1, max(0, (w - len(hint)) // 2), hint)
         safe_addstr(h // 2 + 3, max(0, (w - 24) // 2), "Press any key to exit...", curses.A_DIM)
@@ -564,15 +564,15 @@ def run_curses_gui(stdscr):
     stdscr.clear()
     h, w = stdscr.getmaxyx()
     succ_title = "🎉 katusaOS Installation Complete! 🎉"
-    safe_addstr(h // 2 - 4, max(0, (w - len(succ_title)) // 2), succ_title, curses.color_pair(4) | curses.A_BOLD)
+    safe_addstr(h // 2 - 5, max(0, (w - len(succ_title)) // 2), succ_title, curses.color_pair(4) | curses.A_BOLD)
 
     info1 = f"katusaOS has been installed successfully onto {target_disk['path']}."
-    info2 = "Next steps for UTM App users:"
-    info3 = "1. In UTM VM Settings, detach/remove the installer ISO or drive."
-    info4 = "2. Reboot the virtual machine to boot directly from your new disk!"
+    info2 = "Next steps before rebooting:"
+    info3 = "• VM Environment: Detach installer ISO from VM settings, then reboot."
+    info4 = "• USB Boot / PC : Detach installation media (USB drive), then reboot."
 
-    safe_addstr(h // 2 - 2, max(0, (w - len(info1)) // 2), info1)
-    safe_addstr(h // 2, max(0, (w - len(info2)) // 2), info2, curses.color_pair(1))
+    safe_addstr(h // 2 - 3, max(0, (w - len(info1)) // 2), info1)
+    safe_addstr(h // 2 - 1, max(0, (w - len(info2)) // 2), info2, curses.color_pair(1) | curses.A_BOLD)
     safe_addstr(h // 2 + 1, max(0, (w - len(info3)) // 2), info3)
     safe_addstr(h // 2 + 2, max(0, (w - len(info4)) // 2), info4)
 
@@ -595,7 +595,7 @@ def run_curses_gui(stdscr):
 # ==============================================================================
 
 def main():
-    parser = argparse.ArgumentParser(description="katusaOS Disk Installer (UTM & Physical Drive)")
+    parser = argparse.ArgumentParser(description="katusaOS Disk Installer (VM & Physical Drive)")
     parser.add_argument("--target", "-t", help="Target disk path (e.g. /dev/vda, /dev/sda)")
     parser.add_argument("--yes", "-y", action="store_true", help="Automatically confirm wiping target disk")
     parser.add_argument("--list-disks", "-l", action="store_true", help="List available target disks and exit")
@@ -666,7 +666,7 @@ def main():
 
     disks = get_available_disks()
     if not disks:
-        print("[-] No suitable target disks found. Please attach a virtual drive in UTM.")
+        print("[-] No suitable target disks found. Please attach a target drive.")
         sys.exit(1)
 
     print("Available Destination Disks:")
@@ -696,7 +696,9 @@ def main():
 
     perform_installation(selected["path"])
     print(f"\n[✓] katusaOS successfully installed to {selected['path']}!")
-    print("[*] Detach installer media in UTM and restart the VM.")
+    print("\nNext steps before rebooting:")
+    print("  • VM Environment: Detach installer ISO from VM settings, then reboot.")
+    print("  • USB Boot / PC : Detach installation media (USB drive), then reboot.")
     try:
         choice = input("\nReboot system now? [Y/n]: ").strip().lower()
         if choice in ["", "y", "yes"]:
