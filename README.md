@@ -27,7 +27,7 @@
   - `katusa help`: Built-in CLI guide.
 - **🎨 Tailored Developer Environment (Branding & Dotfiles)**:
   - Clean pre-login prompt (`katusaOS 0.1.1-alpha (ttyAMA0)`).
-  - Dynamic post-login MOTD with ANSI banner and club greeting.
+  - Dynamic post-login MOTD with club greeting.
   - Optimized `.zshrc`, `.bashrc`, `.tmux.conf`, and `.vimrc` configurations.
   - Default user: `katusa` (password: `katusa`, passwordless `sudo` privileges).
 

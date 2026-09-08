@@ -11,22 +11,7 @@ import argparse
 import subprocess
 import shutil
 
-BANNER = r"""
-  _  __      _                     ___  ____  
- | |/ /__ _ | |_ _   _ ___  __ _  / _ \/ ___| 
- | ' // _` || __| | | / __|/ _` || | | \___ \ 
- | . \ (_| || |_| |_| \__ \ (_| || |_| |___) |
- |_|\_\__,_| \__|\__,_|___/\__,_| \___/|____/ 
-  ★ Katusa Programming Club Dedicated Operating System ★
-"""
-
-INSTALL_BANNER = r"""
- _         _                        ___           _        _ _           
-| | ____ _| |_ _   _ ___  __ _     |_ _|_ __  ___| |_ __ _| | | ___ _ __ 
-| |/ / _` | __| | | / __|/ _` |_____| || '_ \/ __| __/ _` | | |/ _ \ '__|
-|   < (_| | |_| |_| \__ \ (_| |_____| || | | \__ \ || (_| | | |  __/ |   
-|_|\_\__,_|\__|\__,_|___/\__,_|    |___|_| |_|___/\__\__,_|_|_|\___|_|   
-"""
+BANNER = "katusaOS - ★ Katusa Programming Club Dedicated Operating System ★"
 
 def run_cmd(cmd, check=True, capture=True):
     """Run a shell command and return stdout."""
@@ -393,20 +378,14 @@ def run_curses_gui(stdscr):
         stdscr.clear()
         h, w = stdscr.getmaxyx()
 
-        # Banner
-        banner_lines = [
-            "  _  __      _                     ___  ____  ",
-            " | |/ /__ _ | |_ _   _ ___  __ _  / _ \\/ ___| ",
-            " | ' // _` || __| | | / __|/ _` || | | \\___ \\ ",
-            " | . \\ (_| || |_| |_| \\__ \\ (_| || |_| |___) |",
-            " |_|\\_\\__,_| \\__|\\__,_|___/\\__,_| \\___/|____/ ",
-            "  ★ Katusa Programming Club Dedicated Operating System ★"
-        ]
-        start_y = max(1, (h - 20) // 2)
-        for i, line in enumerate(banner_lines):
-            stdscr.addstr(start_y + i, max(0, (w - len(line)) // 2), line, curses.color_pair(1) | curses.A_BOLD)
+        # Title
+        title_line1 = "katusaOS Disk Installer"
+        title_line2 = "★ Katusa Programming Club Dedicated Operating System ★"
+        start_y = max(2, (h - 16) // 2)
+        stdscr.addstr(start_y, max(0, (w - len(title_line1)) // 2), title_line1, curses.color_pair(1) | curses.A_BOLD)
+        stdscr.addstr(start_y + 1, max(0, (w - len(title_line2)) // 2), title_line2, curses.color_pair(3) | curses.A_BOLD)
 
-        intro_y = start_y + len(banner_lines) + 2
+        intro_y = start_y + 4
         stdscr.addstr(intro_y, max(0, (w - 44) // 2), "Welcome to the katusaOS Disk Installer!", curses.A_BOLD)
         stdscr.addstr(intro_y + 1, max(0, (w - 62) // 2), "Install katusaOS permanently to your UTM virtual disk or drive.", curses.color_pair(5))
 
@@ -652,7 +631,6 @@ def main():
 
     # Interactive CLI Mode Fallback
     print(BANNER)
-    print(INSTALL_BANNER)
     print("Welcome to katusaOS Disk Installer!\n")
 
     disks = get_available_disks()

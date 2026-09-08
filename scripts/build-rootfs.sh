@@ -142,13 +142,7 @@ cp "${REPO_ROOT}/configs/issue" "${ROOTFS_DIR}/etc/issue.net"
 # Copy MOTD banner (Alpine prints /etc/motd upon login)
 mkdir -p "${ROOTFS_DIR}/etc"
 cat << 'EOF' > "${ROOTFS_DIR}/etc/motd"
-
-  _  __      _                     ___  ____  
- | |/ /__ _ | |_ _   _ ___  __ _  / _ \/ ___| 
- | ' // _` || __| | | / __|/ _` || | | \___ \ 
- | . \ (_| || |_| |_| \__ \ (_| || |_| |___) |
- |_|\_\__,_| \__|\__,_|___/\__,_| \___/|____/ 
-  ★ Katusa Programming Club Dedicated Operating System ★
+katusaOS - ★ Katusa Programming Club Dedicated Operating System ★
 
 Welcome to katusaOS! Type 'katusa doctor' to verify your toolchains,
 or 'katusa help' for developer cheat sheets & starter templates.
