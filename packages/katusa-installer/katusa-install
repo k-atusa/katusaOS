@@ -319,15 +319,21 @@ menuentry 'katusaOS (Fallback Recovery)' {{
         f.write(f"TARGET_DISK={target_disk}\n")
         f.write(f"ROOT_UUID={root_uuid}\n")
 
-    # Clean login issue banner and MOTD on target disk (remove installer prompt)
+    # Clean login issue banner and MOTD on target disk (remove installer prompt & default credentials)
     for issue_file in [f"{mount_dir}/etc/issue", f"{mount_dir}/etc/issue.net"]:
         if os.path.exists(issue_file):
             try:
                 with open(issue_file, "r") as f:
                     issue_lines = f.readlines()
-                filtered = [line for line in issue_lines if "katusa-install" not in line]
+                filtered = [
+                    line for line in issue_lines
+                    if "katusa-install" not in line
+                    and "Default User" not in line
+                    and "Password" not in line
+                ]
+                content = "".join(filtered).strip() + "\n\n"
                 with open(issue_file, "w") as f:
-                    f.writelines(filtered)
+                    f.write(content)
             except Exception:
                 pass
 
@@ -336,7 +342,13 @@ menuentry 'katusaOS (Fallback Recovery)' {{
         try:
             with open(motd_file, "r") as f:
                 motd_lines = f.readlines()
-            filtered_motd = [l for l in motd_lines if "katusa-install" not in l and "install katusaOS permanently" not in l]
+            filtered_motd = [
+                l for l in motd_lines
+                if "katusa-install" not in l
+                and "install katusaOS permanently" not in l
+                and "Default User" not in l
+                and "Password" not in l
+            ]
             with open(motd_file, "w") as f:
                 f.writelines(filtered_motd)
         except Exception:
@@ -558,16 +570,14 @@ def run_curses_gui(stdscr):
     info2 = "Next steps for UTM App users:"
     info3 = "1. In UTM VM Settings, detach/remove the installer ISO or drive."
     info4 = "2. Reboot the virtual machine to boot directly from your new disk!"
-    info5 = "Default User: katusa  |  Password: katusa"
 
     safe_addstr(h // 2 - 2, max(0, (w - len(info1)) // 2), info1)
     safe_addstr(h // 2, max(0, (w - len(info2)) // 2), info2, curses.color_pair(1))
     safe_addstr(h // 2 + 1, max(0, (w - len(info3)) // 2), info3)
     safe_addstr(h // 2 + 2, max(0, (w - len(info4)) // 2), info4)
-    safe_addstr(h // 2 + 4, max(0, (w - len(info5)) // 2), info5, curses.color_pair(5) | curses.A_BOLD)
 
     btn = "[ Press ENTER to Reboot Now  |  Press 'q' for Terminal ]"
-    safe_addstr(h // 2 + 7, max(0, (w - len(btn)) // 2), btn, curses.color_pair(2) | curses.A_BOLD)
+    safe_addstr(h // 2 + 5, max(0, (w - len(btn)) // 2), btn, curses.color_pair(2) | curses.A_BOLD)
     stdscr.refresh()
 
     while True:

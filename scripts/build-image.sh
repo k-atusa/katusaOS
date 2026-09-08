@@ -133,13 +133,34 @@ mcopy -i "${BUILD_DIR}/esp.img" "${BUILD_DIR}/${EFI_BINARY}" "::EFI/BOOT/${EFI_B
 mcopy -i "${BUILD_DIR}/esp.img" "${BUILD_DIR}/early-grub.cfg" "::EFI/BOOT/grub.cfg"
 mcopy -i "${BUILD_DIR}/esp.img" "${BUILD_DIR}/early-grub.cfg" "::boot/grub/grub.cfg"
 
-# Step 6: Build ext4 Root Filesystem partition image
+# Step 6: Prepare ISO rootfs copy first (preserves live installer prompts & login credentials for Live ISO)
+ISO_ROOT="${BUILD_DIR}/iso_root"
+rm -rf "${ISO_ROOT}"
+mkdir -p "${ISO_ROOT}"
+echo "[+] Copying complete rootfs into ISO root..."
+rsync -aHAX --exclude=/proc/* --exclude=/sys/* --exclude=/dev/* --exclude=/run/* --exclude=/tmp/* "${ROOTFS_DIR}/" "${ISO_ROOT}/"
+mkdir -p "${ISO_ROOT}/proc" "${ISO_ROOT}/sys" "${ISO_ROOT}/dev" "${ISO_ROOT}/run" "${ISO_ROOT}/tmp"
+chmod 1777 "${ISO_ROOT}/tmp"
+
+# Configure ROOTFS_DIR for pre-installed disk image (remove installer prompts and default user/pw banner)
+touch "${ROOTFS_DIR}/etc/katusa-installed"
+if [ -f "${ROOTFS_DIR}/etc/issue" ]; then
+    sed -i '/katusa-install/d; /Default User/d; /Password/d' "${ROOTFS_DIR}/etc/issue"
+fi
+if [ -f "${ROOTFS_DIR}/etc/issue.net" ]; then
+    sed -i '/katusa-install/d; /Default User/d; /Password/d' "${ROOTFS_DIR}/etc/issue.net"
+fi
+if [ -f "${ROOTFS_DIR}/etc/motd" ]; then
+    sed -i '/katusa-install/d; /install katusaOS permanently/d; /Default User/d; /Password/d' "${ROOTFS_DIR}/etc/motd"
+fi
+
+# Step 7: Build ext4 Root Filesystem partition image
 ROOT_SIZE_MB=$((IMAGE_SIZE_MB - ESP_SIZE_MB - 2))
 echo "[+] Creating ${ROOT_SIZE_MB}MB ext4 rootfs partition image..."
 rm -f "${BUILD_DIR}/root.img"
 mke2fs -t ext4 -d "${ROOTFS_DIR}" -F -L "katusa-root" "${BUILD_DIR}/root.img" "${ROOT_SIZE_MB}M" > /dev/null
 
-# Step 7: Assemble GPT UEFI Disk Image
+# Step 8: Assemble GPT UEFI Disk Image
 echo "[+] Assembling GPT partitioned disk image (${IMAGE_PATH})..."
 rm -f "${IMAGE_PATH}"
 # Create sparse disk image
@@ -157,17 +178,8 @@ dd if="${BUILD_DIR}/esp.img" of="${IMAGE_PATH}" bs=1M seek=1 conv=notrunc status
 dd if="${BUILD_DIR}/root.img" of="${IMAGE_PATH}" bs=1M seek=$((ESP_SIZE_MB + 1)) conv=notrunc status=none
 chmod 666 "${IMAGE_PATH}" 2>/dev/null || true
 
-# Step 8: Build Bootable UEFI Live & Installer ISO for UTM
+# Step 9: Build Bootable UEFI Live & Installer ISO for UTM
 echo "[+] Generating bootable UEFI installer ISO (${ISO_PATH})..."
-ISO_ROOT="${BUILD_DIR}/iso_root"
-rm -rf "${ISO_ROOT}"
-mkdir -p "${ISO_ROOT}"
-
-# Copy full rootfs into ISO root so installer and all tools are available in live mode
-echo "[+] Copying complete rootfs into ISO..."
-rsync -aHAX --exclude=/proc/* --exclude=/sys/* --exclude=/dev/* --exclude=/run/* --exclude=/tmp/* "${ROOTFS_DIR}/" "${ISO_ROOT}/"
-mkdir -p "${ISO_ROOT}/proc" "${ISO_ROOT}/sys" "${ISO_ROOT}/dev" "${ISO_ROOT}/run" "${ISO_ROOT}/tmp"
-chmod 1777 "${ISO_ROOT}/tmp"
 
 # Configure GRUB for ISO
 mkdir -p "${ISO_ROOT}/boot/grub" "${ISO_ROOT}/EFI/BOOT"
