@@ -70,10 +70,14 @@ def generate_changelog(current_tag, prev_tag=None, repo_url=None):
     if not prev_tag:
         prev_tag = get_previous_tag(current_tag)
 
+    target_ref = current_tag
+    if not run_cmd(f"git rev-parse -q --verify '{current_tag}'"):
+        target_ref = "HEAD"
+
     if prev_tag:
-        git_range = f"{prev_tag}..{current_tag}"
+        git_range = f"{prev_tag}..{target_ref}"
     else:
-        git_range = current_tag
+        git_range = target_ref
 
     raw_log = run_cmd(f'git log --reverse --format="%H|%h|%s" {git_range}')
     lines = ["## What's Changed"]

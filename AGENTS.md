@@ -8,17 +8,21 @@
 
 ### 2. 배포 및 릴리즈 준비 (Release)
 - 사용자가 "릴리즈 준비" 또는 "배포"를 요청할 때만 **`release/v*`** 브랜치를 `develop`에서 생성합니다.
-- 버전 번호 확인, 문서 갱신, 최종 점검 후:
-  1. `main` 브랜치에 merge
-  2. 버전 태그(`vX.Y.Z`)를 `main` 브랜치에 생성
-  3. `develop` 브랜치에 다시 merge하여 동기화 완료
+- 버전 번호 확인, 문서 갱신 후 원격(origin)으로 `release/v*` 브랜치를 push합니다.
+- **자동화된 배포 파이프라인**:
+  1. GitHub Actions가 자동으로 multi-arch (amd64, arm64) 빌드 및 xz 압축을 수행합니다.
+  2. **모든 빌드에 에러가 전혀 없을 때만** GitHub Actions가 자동으로:
+     - `main` 브랜치로 merge
+     - `vX.Y.Z` 버전 태그 생성
+     - GitHub Release 발행 및 빌드 산출물(img.xz, iso, sha256) 자동 첨부
+     - `develop` 브랜치로 main 변경 사항을 다시 merge하여 동기화
+  3. **빌드 실패 시**: 태그나 Release가 일절 생성되지 않으므로 수동 삭제 작업이 불필요합니다. 버그를 `release/v*`에서 수정하여 다시 push하면 됩니다.
+  4. (주의: 빌드 검증 전 수동으로 태그를 생성하거나 push하지 않습니다.)
 
 ### 3. 긴급 결함 수정 (Hotfix)
 - 배포된 버전에 대한 긴급 버그 수정 요청 시 **`hotfix/v*`** 브랜치를 `main`에서 생성합니다.
-- 버그 수정 완료 후:
-  1. `main` 브랜치에 merge 및 패치 버전 태그 생성
-  2. `develop` 브랜치에도 merge하여 변경 사항 유지
+- 버그 수정 후 원격으로 push하면 GitHub Actions가 빌드 검증 후 자동으로 `main` 머지, 태그 생성, Release 발행, `develop` 동기화를 완료합니다.
 
 ### 4. 메인 브랜치 보호 (Main Branch)
-- `main` 브랜치는 실제 배포 태그(`v*`)가 위치하는 프로덕션 브랜치입니다.
-- 직접 커밋을 지양하고, `release/v*` 또는 `hotfix/v*` 브랜치로부터의 merge로만 갱신합니다.
+- `main` 브랜치는 배포된 릴리즈 태그(`v*`)가 위치하는 프로덕션 브랜치입니다.
+- 직접 태그 push를 금지하며, GitHub Actions 파이프라인의 전 과정 무결성 검증을 통과한 빌드만 자동으로 머지 및 릴리즈됩니다.
