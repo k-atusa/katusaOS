@@ -583,15 +583,11 @@ def run_curses_gui(stdscr):
     while True:
         key = stdscr.getch()
         if key in [10, 13]:
-            # Reboot
-            curses.endwin()
-            print("[+] Rebooting system...")
-            run_cmd("reboot 2>/dev/null || true", check=False)
-            sys.exit(0)
+            return "reboot"
         elif key in [ord('q'), 27]:
-            break
+            return "quit"
 
-    return True
+    return "quit"
 
 
 # ==============================================================================
@@ -653,7 +649,13 @@ def main():
     if not args.cli and sys.stdin.isatty():
         try:
             import curses
-            curses.wrapper(run_curses_gui)
+            result = curses.wrapper(run_curses_gui)
+            if result == "reboot":
+                print("\n[+] Installation complete. Rebooting system now...")
+                run_cmd("reboot 2>/dev/null || true", check=False)
+                sys.exit(0)
+            elif result in ["quit", False, True]:
+                sys.exit(0)
             return
         except Exception as e:
             print(f"[!] Curses UI exited or unsupported: {e}. Falling back to CLI mode...")
@@ -695,6 +697,14 @@ def main():
     perform_installation(selected["path"])
     print(f"\n[✓] katusaOS successfully installed to {selected['path']}!")
     print("[*] Detach installer media in UTM and restart the VM.")
+    try:
+        choice = input("\nReboot system now? [Y/n]: ").strip().lower()
+        if choice in ["", "y", "yes"]:
+            print("[+] Rebooting system...")
+            run_cmd("reboot 2>/dev/null || true", check=False)
+    except Exception:
+        pass
+    sys.exit(0)
 
 
 if __name__ == "__main__":
