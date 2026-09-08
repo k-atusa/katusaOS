@@ -65,6 +65,7 @@ test:
 	python3 ./packages/katusa-cli/katusa snippet cpp
 	python3 ./packages/katusa-cli/katusa cheat git
 	python3 ./packages/katusa-installer/katusa-install --help
+	python3 ./scripts/generate-release-notes.py --help
 	@echo "[*] Checking shell scripts syntax..."
 	bash -n scripts/build-rootfs.sh
 	bash -n scripts/build-image.sh

@@ -1,19 +1,21 @@
-name: Release Build
+name: Release Build & Publish
 
 on:
-  release:
-    types: [published]
+  push:
+    tags:
+      - 'v*'
   workflow_dispatch:
     inputs:
-      version:
-        description: 'Version tag (e.g. v0.1.1-alpha)'
+      tag:
+        description: 'Release tag (e.g. v0.1.1-alpha)'
         required: false
 
 permissions:
   contents: write
 
 jobs:
-  build-and-release:
+  build:
+    name: Build (${{ matrix.arch }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -21,10 +23,10 @@ jobs:
         arch: [amd64, arm64]
 
     steps:
-      - name: Checkout main branch
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          ref: main
+          fetch-depth: 0
 
       - name: Set up QEMU and binfmt-support (for multi-arch build)
         uses: docker/setup-qemu-action@v3
@@ -32,11 +34,11 @@ jobs:
       - name: Extract Version Tag
         id: get_version
         run: |
-          RAW_TAG="${{ github.event.release.tag_name || github.event.inputs.version || github.ref_name }}"
-          # Strip leading 'v' if present (e.g. v0.1.1-alpha -> 0.1.1-alpha)
+          RAW_TAG="${{ github.event.inputs.tag || github.ref_name }}"
           VERSION="${RAW_TAG#v}"
+          echo "TAG=${RAW_TAG}" >> $GITHUB_OUTPUT
           echo "VERSION=${VERSION}" >> $GITHUB_OUTPUT
-          echo "Building katusaOS version: ${VERSION} for ${{ matrix.arch }}"
+          echo "Building katusaOS version: ${VERSION} (${RAW_TAG}) for ${{ matrix.arch }}"
 
       - name: Build, Compress and Prepare Release Artifacts
         run: |
@@ -48,7 +50,7 @@ jobs:
           # Build builder image
           docker build -t katusaos-builder:latest -f docker/Dockerfile.builder docker/
 
-          # Build disk image directly into runner temp directory (no output/ directory created in workspace)
+          # Build disk image directly into runner temp directory
           docker run --rm --privileged \
             -v "${PWD}:/workspace" \
             -v "${ARTIFACT_DIR}:/release-output" \
@@ -61,18 +63,20 @@ jobs:
           # Fix permissions on runner temp directory
           sudo chown -R $(id -u):$(id -g) "${ARTIFACT_DIR}"
 
-          # Rename and compress image using multi-threaded xz
+          # Rename and compress raw disk image using multi-threaded xz
           RAW_IMG="${ARTIFACT_DIR}/katusaOS-${ARCH}.img"
           TARGET_IMG="${ARTIFACT_DIR}/katusaOS-${VERSION}-${ARCH}.img"
           mv "${RAW_IMG}" "${TARGET_IMG}"
           echo "[+] Compressing ${TARGET_IMG} with xz (multi-threaded)..."
           xz -T0 -6 -v "${TARGET_IMG}"
 
-          # Rename installer ISO if present
+          # Rename and compress installer ISO if present
           RAW_ISO="${ARTIFACT_DIR}/katusaOS-${ARCH}-installer.iso"
           TARGET_ISO="${ARTIFACT_DIR}/katusaOS-${VERSION}-${ARCH}-installer.iso"
           if [ -f "${RAW_ISO}" ]; then
             mv "${RAW_ISO}" "${TARGET_ISO}"
+            echo "[+] Compressing ${TARGET_ISO} with xz..."
+            xz -T0 -6 -k -v "${TARGET_ISO}"
           fi
 
           # Generate SHA256 checksums
@@ -81,21 +85,71 @@ jobs:
           if [ -f "katusaOS-${VERSION}-${ARCH}-installer.iso" ]; then
             sha256sum "katusaOS-${VERSION}-${ARCH}-installer.iso" > "katusaOS-${VERSION}-${ARCH}-installer.iso.sha256"
           fi
+          if [ -f "katusaOS-${VERSION}-${ARCH}-installer.iso.xz" ]; then
+            sha256sum "katusaOS-${VERSION}-${ARCH}-installer.iso.xz" > "katusaOS-${VERSION}-${ARCH}-installer.iso.xz.sha256"
+          fi
           cd -
 
-          echo "[+] Artifacts ready for release:"
+          echo "[+] Artifacts for ${{ matrix.arch }}:"
           ls -lh "${ARTIFACT_DIR}"
 
-      - name: Upload Artifacts to GitHub Release
-        uses: softprops/action-gh-release@v2
-        if: github.event_name == 'release'
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
         with:
+          name: release-artifacts-${{ matrix.arch }}
+          path: ${{ runner.temp }}/release-artifacts/*
+          if-no-files-found: error
+          retention-days: 1
+
+  publish-release:
+    name: Publish Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Extract Tag Information
+        id: get_tag
+        run: |
+          RAW_TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          echo "TAG=${RAW_TAG}" >> $GITHUB_OUTPUT
+          echo "Target Release Tag: ${RAW_TAG}"
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+          pattern: release-artifacts-*
+          merge-multiple: true
+
+      - name: List downloaded artifacts
+        run: ls -lh release-artifacts/
+
+      - name: Generate Dynamic Release Notes
+        run: |
+          TAG="${{ steps.get_tag.outputs.TAG }}"
+          python3 scripts/generate-release-notes.py --tag "${TAG}" --output release_notes.md
+          cat release_notes.md
+
+      - name: Create GitHub Release and Upload Assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.get_tag.outputs.TAG }}
+          name: ${{ steps.get_tag.outputs.TAG }}
+          body_path: release_notes.md
+          draft: false
+          prerelease: ${{ contains(steps.get_tag.outputs.TAG, 'alpha') || contains(steps.get_tag.outputs.TAG, 'beta') || contains(steps.get_tag.outputs.TAG, 'rc') }}
           files: |
-            ${{ runner.temp }}/release-artifacts/katusaOS-*.img.xz
-            ${{ runner.temp }}/release-artifacts/katusaOS-*.img.xz.sha256
-            ${{ runner.temp }}/release-artifacts/katusaOS-*-installer.iso
-            ${{ runner.temp }}/release-artifacts/katusaOS-*-installer.iso.sha256
-            ${{ runner.temp }}/release-artifacts/vmlinuz-*
-            ${{ runner.temp }}/release-artifacts/initrd-*.img
+            release-artifacts/katusaOS-*.img.xz
+            release-artifacts/katusaOS-*.img.xz.sha256
+            release-artifacts/katusaOS-*-installer.iso
+            release-artifacts/katusaOS-*-installer.iso.xz
+            release-artifacts/katusaOS-*-installer.iso.xz.sha256
+            release-artifacts/katusaOS-*-installer.iso.sha256
+            release-artifacts/vmlinuz-*
+            release-artifacts/initrd-*.img
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
