@@ -112,7 +112,13 @@ configfile ($root)/boot/grub/grub.cfg
 EOF
 
 echo "[+] Generating GRUB EFI executable (${EFI_BINARY})..."
-grub-mkimage -O "${GRUB_TARGET}" \
+# Locate GRUB modules: prefer target rootfs modules (essential for cross-architecture builds)
+GRUB_MODULE_DIR="${ROOTFS_DIR}/usr/lib/grub/${GRUB_TARGET}"
+if [ ! -d "${GRUB_MODULE_DIR}" ]; then
+    GRUB_MODULE_DIR="/usr/lib/grub/${GRUB_TARGET}"
+fi
+
+grub-mkimage -d "${GRUB_MODULE_DIR}" -O "${GRUB_TARGET}" \
     -c "${BUILD_DIR}/early-grub.cfg" \
     -o "${BUILD_DIR}/${EFI_BINARY}" \
     -p "/boot/grub" \
@@ -216,7 +222,7 @@ set prefix=($root)/boot/grub
 configfile ($root)/boot/grub/grub.cfg
 EOF
 
-grub-mkimage -O "${GRUB_TARGET}" \
+grub-mkimage -d "${GRUB_MODULE_DIR}" -O "${GRUB_TARGET}" \
     -c "${BUILD_DIR}/early-iso.cfg" \
     -o "${BUILD_DIR}/iso-${EFI_BINARY}" \
     -p "/boot/grub" \

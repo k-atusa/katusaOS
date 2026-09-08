@@ -2,8 +2,10 @@ name: Release Build & Publish
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches:
+      - 'release/**'
+      - 'hotfix/**'
+      - 'main'
   workflow_dispatch:
     inputs:
       tag:
@@ -14,8 +16,69 @@ permissions:
   contents: write
 
 jobs:
+  check-release:
+    name: Check & Prepare Release
+    runs-on: ubuntu-latest
+    outputs:
+      should_build: ${{ steps.check.outputs.SHOULD_BUILD }}
+      tag: ${{ steps.check.outputs.TAG }}
+      version: ${{ steps.check.outputs.VERSION }}
+      is_release_branch: ${{ steps.check.outputs.IS_RELEASE_BRANCH }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine Release Version & Validate
+        id: check
+        run: |
+          REF="${GITHUB_REF_NAME}"
+          if [ -n "${{ github.event.inputs.tag }}" ]; then
+            RAW_TAG="${{ github.event.inputs.tag }}"
+            IS_REL="false"
+          elif [[ "${REF}" =~ ^release/ ]] || [[ "${REF}" =~ ^hotfix/ ]]; then
+            RAW_TAG="${REF#release/}"
+            RAW_TAG="${RAW_TAG#hotfix/}"
+            IS_REL="true"
+          else
+            # On main branch: read VERSION_ID from configs/os-release
+            VERSION_VAL="$(grep '^VERSION_ID=' configs/os-release | cut -d= -f2 | tr -d '\"' || true)"
+            if [ -z "${VERSION_VAL}" ]; then
+              VERSION_VAL="$(grep '^VERSION=' configs/os-release | cut -d= -f2 | tr -d '\"' || true)"
+            fi
+            RAW_TAG="${VERSION_VAL}"
+            IS_REL="false"
+          fi
+
+          [[ "${RAW_TAG}" != v* ]] && RAW_TAG="v${RAW_TAG}"
+          VERSION="${RAW_TAG#v}"
+
+          echo "TAG=${RAW_TAG}" >> $GITHUB_OUTPUT
+          echo "VERSION=${VERSION}" >> $GITHUB_OUTPUT
+          echo "IS_RELEASE_BRANCH=${IS_REL}" >> $GITHUB_OUTPUT
+
+          # Check if tag already exists in remote origin
+          git fetch --tags origin
+          if git rev-parse -q --verify "refs/tags/${RAW_TAG}" >/dev/null 2>&1; then
+            TAG_EXISTS="true"
+          else
+            TAG_EXISTS="false"
+          fi
+
+          # If pushing to main and tag already exists, skip build to avoid duplicate releases
+          if [ "${REF}" = "main" ] && [ "${TAG_EXISTS}" = "true" ] && [ -z "${{ github.event.inputs.tag }}" ]; then
+            echo "[!] Release tag ${RAW_TAG} already exists on remote origin. Skipping release workflow."
+            echo "SHOULD_BUILD=false" >> $GITHUB_OUTPUT
+          else
+            echo "[+] Target release: ${RAW_TAG} (version: ${VERSION})"
+            echo "SHOULD_BUILD=true" >> $GITHUB_OUTPUT
+          fi
+
   build:
     name: Build (${{ matrix.arch }})
+    needs: check-release
+    if: needs.check-release.outputs.should_build == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -31,18 +94,9 @@ jobs:
       - name: Set up QEMU and binfmt-support (for multi-arch build)
         uses: docker/setup-qemu-action@v3
 
-      - name: Extract Version Tag
-        id: get_version
-        run: |
-          RAW_TAG="${{ github.event.inputs.tag || github.ref_name }}"
-          VERSION="${RAW_TAG#v}"
-          echo "TAG=${RAW_TAG}" >> $GITHUB_OUTPUT
-          echo "VERSION=${VERSION}" >> $GITHUB_OUTPUT
-          echo "Building katusaOS version: ${VERSION} (${RAW_TAG}) for ${{ matrix.arch }}"
-
       - name: Build, Compress and Prepare Release Artifacts
         run: |
-          VERSION="${{ steps.get_version.outputs.VERSION }}"
+          VERSION="${{ needs.check-release.outputs.version }}"
           ARCH="${{ matrix.arch }}"
           ARTIFACT_DIR="${{ runner.temp }}/release-artifacts"
           mkdir -p "${ARTIFACT_DIR}"
@@ -103,20 +157,50 @@ jobs:
 
   publish-release:
     name: Publish Release
-    needs: build
+    needs: [check-release, build]
+    if: needs.check-release.outputs.should_build == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract Tag Information
-        id: get_tag
+      - name: Configure Git Bot
         run: |
-          RAW_TAG="${{ github.event.inputs.tag || github.ref_name }}"
-          echo "TAG=${RAW_TAG}" >> $GITHUB_OUTPUT
-          echo "Target Release Tag: ${RAW_TAG}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Sync Git Flow Branches & Tags
+        env:
+          TAG: ${{ needs.check-release.outputs.tag }}
+          IS_RELEASE_BRANCH: ${{ needs.check-release.outputs.is_release_branch }}
+        run: |
+          REF="${GITHUB_REF_NAME}"
+          echo "[+] Processing release for tag: ${TAG} from branch ${REF}"
+
+          if [ "${IS_RELEASE_BRANCH}" = "true" ]; then
+            echo "[+] Merging release/hotfix branch ${REF} into main..."
+            git checkout main
+            git pull origin main --rebase || true
+            git merge --no-ff "${REF}" -m "chore(release): merge ${REF} into main [skip ci]"
+            git push origin main || echo "::warning::Could not push main automatically"
+
+            echo "[+] Tagging release ${TAG} on main..."
+            git tag -a "${TAG}" -m "Release ${TAG}"
+            git push origin "${TAG}" || echo "::warning::Could not push tag automatically"
+
+            echo "[+] Merging main into develop..."
+            git checkout develop
+            git pull origin develop --rebase || true
+            git merge --no-ff main -m "chore(release): sync main (${TAG}) into develop [skip ci]"
+            git push origin develop || echo "::warning::Could not push develop automatically"
+          else
+            echo "[+] Ensuring tag ${TAG} is created on origin..."
+            git tag -a "${TAG}" -m "Release ${TAG}" || true
+            git push origin "${TAG}" || echo "::warning::Could not push tag automatically"
+          fi
 
       - name: Download all build artifacts
         uses: actions/download-artifact@v4
@@ -130,18 +214,18 @@ jobs:
 
       - name: Generate Dynamic Release Notes
         run: |
-          TAG="${{ steps.get_tag.outputs.TAG }}"
+          TAG="${{ needs.check-release.outputs.tag }}"
           python3 scripts/generate-release-notes.py --tag "${TAG}" --output release_notes.md
           cat release_notes.md
 
       - name: Create GitHub Release and Upload Assets
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.get_tag.outputs.TAG }}
-          name: ${{ steps.get_tag.outputs.TAG }}
+          tag_name: ${{ needs.check-release.outputs.tag }}
+          name: ${{ needs.check-release.outputs.tag }}
           body_path: release_notes.md
           draft: false
-          prerelease: ${{ contains(steps.get_tag.outputs.TAG, 'alpha') || contains(steps.get_tag.outputs.TAG, 'beta') || contains(steps.get_tag.outputs.TAG, 'rc') }}
+          prerelease: ${{ contains(needs.check-release.outputs.tag, 'alpha') || contains(needs.check-release.outputs.tag, 'beta') || contains(needs.check-release.outputs.tag, 'rc') }}
           files: |
             release-artifacts/katusaOS-*.img.xz
             release-artifacts/katusaOS-*.img.xz.sha256
