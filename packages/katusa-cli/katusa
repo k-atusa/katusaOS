@@ -261,33 +261,6 @@ def cmd_cheat(args):
     else:
         print(f"{Color.RED}Topic '{topic}' not found.{Color.RESET} Available: {', '.join(cheats.keys())}")
 
-def cmd_install(args):
-    installer_path = "/usr/local/bin/katusa-install"
-    if not os.path.exists(installer_path):
-        local_cand = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "katusa-installer", "katusa-install"))
-        if os.path.exists(local_cand):
-            installer_path = local_cand
-
-    if not os.path.exists(installer_path):
-        print(f"{Color.RED}Error: katusa-install tool not found.{Color.RESET}")
-        sys.exit(1)
-
-    cmd = ["sudo", installer_path] if os.geteuid() != 0 else [installer_path]
-    if args.target:
-        cmd.extend(["--target", args.target])
-    if args.yes:
-        cmd.append("--yes")
-    if args.list_disks:
-        cmd.append("--list-disks")
-    if args.cli:
-        cmd.append("--cli")
-
-    try:
-        os.execvp(cmd[0], cmd)
-    except Exception as e:
-        print(f"{Color.RED}Failed to execute installer: {e}{Color.RESET}")
-        sys.exit(1)
-
 def main():
     parser = argparse.ArgumentParser(
         prog="katusa",
@@ -325,14 +298,6 @@ def main():
     p_cheat = subparsers.add_parser("cheat", help="Quick cheat sheets for Git, Tmux, GDB, QEMU")
     p_cheat.add_argument("topic", nargs="?", help="Topic: git, tmux, gdb, qemu")
     p_cheat.set_defaults(func=cmd_cheat)
-
-    # install
-    p_install = subparsers.add_parser("install", help="Launch interactive disk installer for UTM/QEMU/Disks")
-    p_install.add_argument("--target", "-t", help="Target disk path (e.g. /dev/vda)")
-    p_install.add_argument("--yes", "-y", action="store_true", help="Auto confirm wipe")
-    p_install.add_argument("--list-disks", "-l", action="store_true", help="List target disks")
-    p_install.add_argument("--cli", action="store_true", help="Use text CLI instead of curses TUI")
-    p_install.set_defaults(func=cmd_install)
 
     args = parser.parse_args()
     if not args.command:

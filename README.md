@@ -146,9 +146,7 @@ katusaOS provides a dedicated interactive **Terminal UI Installer (`katusa-insta
 4. Start the VM. It boots via UEFI into the katusaOS live environment.
 5. In the terminal, run the interactive installer:
    ```bash
-   sudo katusa-install
-   # or simply:
-   katusa install
+   katusa-install
    ```
 6. The installer TUI will guide you through:
    - Target disk selection (e.g. `/dev/vda` 64GB)

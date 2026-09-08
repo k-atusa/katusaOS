@@ -54,6 +54,49 @@ def get_booted_device():
         return None
 
 
+def is_already_installed():
+    """
+    Check if the current system is running from an installed disk rather than live media.
+    Returns True if already installed on disk.
+    """
+    # 1. Check kernel command-line: live ISO boots with KATUSA_ISO or overlaytmpfs
+    try:
+        if os.path.exists("/proc/cmdline"):
+            with open("/proc/cmdline", "r") as f:
+                cmdline = f.read()
+            if "KATUSA_ISO" in cmdline or "overlaytmpfs" in cmdline:
+                return False
+    except Exception:
+        pass
+
+    # 2. Check mount points: if /media/root-ro is mounted, we are definitely on live ISO
+    if os.path.ismount("/media/root-ro"):
+        return False
+
+    # 3. Marker file created during disk installation
+    if os.path.exists("/etc/katusa-installed"):
+        return True
+
+    # 4. Check root filesystem type from /proc/mounts
+    try:
+        if os.path.exists("/proc/mounts"):
+            with open("/proc/mounts", "r") as f:
+                for line in f:
+                    parts = line.split()
+                    if len(parts) >= 3 and parts[1] == "/":
+                        fstype = parts[2]
+                        # In live ISO mode, rootfs is overlay/overlayfs
+                        if fstype in ["overlay", "overlayfs"]:
+                            return False
+                        # If rootfs is an actual disk filesystem directly, it's an installed disk
+                        if fstype in ["ext4", "ext3", "ext2", "xfs", "btrfs", "f2fs"]:
+                            return True
+    except Exception:
+        pass
+
+    return False
+
+
 def get_available_disks():
     """Scan and return candidate destination block devices."""
     disks = []
@@ -284,6 +327,35 @@ menuentry 'katusaOS (Fallback Recovery)' {{
     # Write hostname
     with open(f"{mount_dir}/etc/hostname", "w") as f:
         f.write(f"{hostname}\n")
+
+    # Mark system as permanently installed to disk
+    with open(f"{mount_dir}/etc/katusa-installed", "w") as f:
+        f.write(f"INSTALLED_DATE={time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime())}\n")
+        f.write(f"TARGET_DISK={target_disk}\n")
+        f.write(f"ROOT_UUID={root_uuid}\n")
+
+    # Clean login issue banner and MOTD on target disk (remove installer prompt)
+    for issue_file in [f"{mount_dir}/etc/issue", f"{mount_dir}/etc/issue.net"]:
+        if os.path.exists(issue_file):
+            try:
+                with open(issue_file, "r") as f:
+                    issue_lines = f.readlines()
+                filtered = [line for line in issue_lines if "katusa-install" not in line]
+                with open(issue_file, "w") as f:
+                    f.writelines(filtered)
+            except Exception:
+                pass
+
+    motd_file = f"{mount_dir}/etc/motd"
+    if os.path.exists(motd_file):
+        try:
+            with open(motd_file, "r") as f:
+                motd_lines = f.readlines()
+            filtered_motd = [l for l in motd_lines if "katusa-install" not in l and "install katusaOS permanently" not in l]
+            with open(motd_file, "w") as f:
+                f.writelines(filtered_motd)
+        except Exception:
+            pass
 
     # Step 9: Sync and unmount
     update(9, total_steps, "Syncing disk buffers and unmounting target...")
@@ -524,12 +596,28 @@ def main():
     parser.add_argument("--yes", "-y", action="store_true", help="Automatically confirm wiping target disk")
     parser.add_argument("--list-disks", "-l", action="store_true", help="List available target disks and exit")
     parser.add_argument("--cli", action="store_true", help="Force text CLI mode instead of curses TUI")
+    parser.add_argument("--force", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
 
-    # Must be root
-    if os.geteuid() != 0:
-        print("[-] Error: katusa-install must be run as root (use 'sudo katusa-install').", file=sys.stderr)
+    # Block execution if already running on an installed disk system
+    if is_already_installed() and not args.force:
+        print(BANNER)
+        print("[-] katusaOS is already installed on this disk.")
+        print("[-] The 'katusa-install' utility cannot be run on an already installed system.\n")
         sys.exit(1)
+
+    # Auto-elevate to root via sudo if run as regular user
+    if os.geteuid() != 0:
+        if shutil.which("sudo"):
+            try:
+                cmd = ["sudo", sys.executable, os.path.abspath(__file__)] + sys.argv[1:]
+                os.execvp("sudo", cmd)
+            except Exception as e:
+                print(f"[-] Error: Failed to elevate to root via sudo: {e}", file=sys.stderr)
+                sys.exit(1)
+        else:
+            print("[-] Error: katusa-install must be run as root (use 'sudo katusa-install').", file=sys.stderr)
+            sys.exit(1)
 
     if args.list_disks:
         disks = get_available_disks()

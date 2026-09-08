@@ -154,7 +154,7 @@ Welcome to katusaOS! Type 'katusa doctor' to verify your toolchains,
 or 'katusa help' for developer cheat sheets & starter templates.
 
 💡 To install katusaOS permanently to your disk (UTM/QEMU), run:
-   sudo katusa-install
+   katusa-install
 
 EOF
 
