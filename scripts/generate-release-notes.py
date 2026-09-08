@@ -86,8 +86,8 @@ def generate_changelog(current_tag, prev_tag=None, repo_url=None):
             continue
         full_hash, short_hash, subject = parts[0], parts[1], parts[2]
 
-        # Filter out noisy branch merge commits
-        if re.match(r"^Merge (branch|pull request) ", subject):
+        # Filter out noisy branch merge commits and release tag commits
+        if re.match(r"^(Merge (branch|pull request) |chore\(release\): )", subject):
             continue
 
         commit_url = f"{repo_url}/commit/{full_hash}"
