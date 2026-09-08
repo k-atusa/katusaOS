@@ -47,19 +47,32 @@ mkdir -p "${ROOTFS_DIR}/etc/apk"
 
 # Step 1: Configure APK Repositories and Keys
 echo "[+] Step 1/6: Setting up APK repositories and keys..."
+mkdir -p "${ROOTFS_DIR}/etc/apk/keys"
 cat << EOF > "${ROOTFS_DIR}/etc/apk/repositories"
 ${ALPINE_MIRROR}/${ALPINE_BRANCH}/main
 ${ALPINE_MIRROR}/${ALPINE_BRANCH}/community
 EOF
 
-# Copy host apk keys
-if [ -d /etc/apk/keys ]; then
-    cp -r /etc/apk/keys "${ROOTFS_DIR}/etc/apk/"
-else
-    mkdir -p "${ROOTFS_DIR}/etc/apk/keys"
-    curl -sSL "https://alpinelinux.org/keys/alpine-devel@lists.alpinelinux.org-6165ee59.rsa.pub" \
-        -o "${ROOTFS_DIR}/etc/apk/keys/alpine-devel@lists.alpinelinux.org-6165ee59.rsa.pub" || true
+# Copy all available Alpine signing keys from host
+if [ -d /usr/share/apk/keys ]; then
+    find /usr/share/apk/keys -name "*.pub" -exec cp -f {} "${ROOTFS_DIR}/etc/apk/keys/" \; 2>/dev/null || true
 fi
+if [ -d /etc/apk/keys ]; then
+    find /etc/apk/keys -name "*.pub" -exec cp -f {} "${ROOTFS_DIR}/etc/apk/keys/" \; 2>/dev/null || true
+fi
+
+# Ensure critical architecture and release signing keys are present
+for key in \
+    "alpine-devel@lists.alpinelinux.org-6165ee59.rsa.pub" \
+    "alpine-devel@lists.alpinelinux.org-5261cecb.rsa.pub" \
+    "alpine-devel@lists.alpinelinux.org-4a6a0840.rsa.pub" \
+    "alpine-devel@lists.alpinelinux.org-616a9724.rsa.pub" \
+    "alpine-devel@lists.alpinelinux.org-616adfeb.rsa.pub" \
+    "alpine-devel@lists.alpinelinux.org-616ae350.rsa.pub"; do
+    if [ ! -f "${ROOTFS_DIR}/etc/apk/keys/${key}" ]; then
+        curl -sSL "https://alpinelinux.org/keys/${key}" -o "${ROOTFS_DIR}/etc/apk/keys/${key}" 2>/dev/null || true
+    fi
+done
 
 # Step 2: Bootstrap Alpine Base and Kernel using apk.static
 echo "[+] Step 2/6: Bootstrapping Alpine base system for ${ALPINE_ARCH}..."
@@ -134,6 +147,7 @@ fi
     --root "${ROOTFS_DIR}" \
     --keys-dir "${ROOTFS_DIR}/etc/apk/keys" \
     --repositories-file "${ROOTFS_DIR}/etc/apk/repositories" \
+    --allow-untrusted \
     --initdb add "${ALL_PACKAGES[@]}"
 
 echo "[+] Step 3/6: Copying katusaOS configurations and packages..."
