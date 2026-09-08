@@ -1,12 +1,14 @@
 # katusaOS 🚀
 > **Dedicated Custom Linux Operating System for the Katusa Programming Club**
 
-![katusaOS Banner](https://img.shields.io/badge/katusaOS-v0.1.0--alpha-00ADB5?style=for-the-badge)
+![katusaOS Banner](https://img.shields.io/badge/katusaOS-v0.1.1--alpha-00ADB5?style=for-the-badge)
+
 ![Arch](https://img.shields.io/badge/Architecture-amd64%20%7C%20arm64-brightgreen?style=for-the-badge)
-![Base](https://img.shields.io/badge/Base-Debian%2012%20(Bookworm)-E95420?style=for-the-badge)
+![Base](https://img.shields.io/badge/Base-Alpine%20Linux%203.20-0D597F?style=for-the-badge)
+![Pkg Manager](https://img.shields.io/badge/Pkg%20Manager-apk-blueviolet?style=for-the-badge)
 ![License](https://img.shields.io/badge/License-GPLv3-blue?style=for-the-badge)
 
-**katusaOS** is a specialized, reproducible Linux distribution designed for members of the **Katusa Programming Club**. It comes pre-configured with modern developer toolchains, algorithm problem-solving starter templates, and club-developed utilities (`katusa-cli`, custom dynamic MOTD, shell configurations).
+**katusaOS** is a lightweight, high-performance, and reproducible Linux distribution built on **Alpine Linux** and the **`apk`** package manager, tailored for members of the **Katusa Programming Club**. It comes pre-configured with modern developer toolchains, algorithm problem-solving starter templates, and club-developed utilities (`katusa-cli`, custom dynamic MOTD, shell configurations).
 
 ---
 
@@ -25,8 +27,8 @@
   - `katusa cheat <git|tmux|gdb|qemu>`: Quick command reference and cheat sheets.
   - `katusa help`: Built-in CLI guide.
 - **🎨 Tailored Developer Environment (Branding & Dotfiles)**:
-  - Clean pre-login prompt (`katusaOS 1.0.0-alpha (ttyAMA0)`).
-  - Dynamic post-login MOTD with ANSI banner and club greeting.
+  - Clean pre-login prompt (`katusaOS 0.1.1-alpha (ttyAMA0)`).
+  - Dynamic post-login MOTD with club greeting.
   - Optimized `.zshrc`, `.bashrc`, `.tmux.conf`, and `.vimrc` configurations.
   - Default user: `katusa` (password: `katusa`, passwordless `sudo` privileges).
 
@@ -131,6 +133,37 @@ make run-amd64       # AMD64 QEMU
   ```bash
   ssh -p 2222 katusa@localhost
   ```
+
+---
+
+### 4. Running in UTM App & Permanent Disk Installation (`katusa-install`)
+
+katusaOS provides a dedicated interactive **Terminal UI Installer (`katusa-install`)** supporting both modern **GPT (UEFI)** and legacy **MBR (Legacy BIOS)** environments for virtualization apps like **UTM (macOS / iOS)**, **QEMU**, and physical drives.
+
+#### Method 1: Installing to Virtual Disk via Bootable ISO (Recommended for UTM / QEMU)
+1. In UTM, click **`+` (Create VM) -> Virtualize -> Linux**.
+2. Check **Boot ISO Image** and select `output/katusaOS-arm64-installer.iso` (or `amd64`).
+3. Set your desired disk size (e.g., 20GB - 64GB) and finish creating the VM.
+4. Start the VM. It boots into the katusaOS live environment.
+5. In the terminal, run the interactive installer:
+   ```bash
+   katusa-install
+   ```
+6. The installer TUI will guide you through:
+   - Target disk selection (e.g. `/dev/vda` 64GB)
+   - Partition scheme & bootloader selection:
+     - **GPT (UEFI)**: Modern GUID partition table with FAT32 ESP partition and UEFI bootloader.
+     - **MBR (Legacy BIOS)**: Classic MS-DOS partition table with active boot flag and MBR BIOS bootloader.
+   - Formatting and copying system files
+   - Generating system configuration and `/etc/fstab`
+7. Once installation finishes:
+   - **VM Environment**: Detach/remove the installer ISO from VM settings and reboot.
+   - **USB Boot / Physical Drive**: Detach the installation media and reboot.
+
+#### Method 2: Booting the GPT Disk Image Directly in UTM
+1. In UTM, create a Linux VM without an ISO.
+2. In the VM settings under **Drives**, add or import `output/katusaOS-arm64.img`.
+3. Start the VM — UTM's UEFI firmware (`EDK2/AAVMF`) automatically boots GRUB EFI from the disk!
 
 ---
 

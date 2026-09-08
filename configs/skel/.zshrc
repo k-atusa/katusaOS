@@ -1,6 +1,11 @@
 # katusaOS Default Zsh Configuration
 # ~/.zshrc
 
+# Terminal normalization for UTM / QEMU serial consoles
+if [ "$TERM" = "vt100" ] || [ -z "$TERM" ]; then
+    export TERM=linux
+fi
+
 # History
 HISTFILE=~/.zsh_history
 HISTSIZE=10000

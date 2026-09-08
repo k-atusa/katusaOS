@@ -21,6 +21,7 @@ help:
 	@echo "  make run            - Run katusaOS in QEMU (Auto-detect host arch)"
 	@echo "  make run-amd64      - Run katusaOS amd64 in QEMU"
 	@echo "  make run-arm64      - Run katusaOS arm64 in QEMU"
+	@echo "  make run-installer  - Run in QEMU with a 10GB blank disk to test installer"
 	@echo "  make test           - Run local sanity tests on CLI and configs"
 	@echo "  make clean          - Remove all build artifacts and disk images"
 	@echo "======================================================================"
@@ -53,12 +54,17 @@ run-arm64:
 	@echo "[*] Booting katusaOS (arm64) in QEMU..."
 	./scripts/run-qemu.sh --arch arm64
 
+run-installer:
+	@echo "[*] Booting katusaOS with secondary 10GB target disk for installer test..."
+	./scripts/run-qemu.sh --arch $(ARCH) --target-disk /tmp/katusa-target-disk.img
+
 test:
-	@echo "[*] Testing katusa CLI tool..."
+	@echo "[*] Testing katusa CLI and installer tools..."
 	python3 ./packages/katusa-cli/katusa info
 	python3 ./packages/katusa-cli/katusa doctor
 	python3 ./packages/katusa-cli/katusa snippet cpp
 	python3 ./packages/katusa-cli/katusa cheat git
+	python3 ./packages/katusa-installer/katusa-install --help
 	@echo "[*] Checking shell scripts syntax..."
 	bash -n scripts/build-rootfs.sh
 	bash -n scripts/build-image.sh

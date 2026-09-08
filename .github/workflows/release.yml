@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version tag (e.g. v1.0.0-alpha)'
+        description: 'Version tag (e.g. v0.1.1-alpha)'
         required: false
 
 permissions:
@@ -33,7 +33,7 @@ jobs:
         id: get_version
         run: |
           RAW_TAG="${{ github.event.release.tag_name || github.event.inputs.version || github.ref_name }}"
-          # Strip leading 'v' if present (e.g. v1.0.0-alpha -> 1.0.0-alpha)
+          # Strip leading 'v' if present (e.g. v0.1.1-alpha -> 0.1.1-alpha)
           VERSION="${RAW_TAG#v}"
           echo "VERSION=${VERSION}" >> $GITHUB_OUTPUT
           echo "Building katusaOS version: ${VERSION} for ${{ matrix.arch }}"
@@ -68,9 +68,19 @@ jobs:
           echo "[+] Compressing ${TARGET_IMG} with xz (multi-threaded)..."
           xz -T0 -6 -v "${TARGET_IMG}"
 
-          # Generate SHA256 checksum
+          # Rename installer ISO if present
+          RAW_ISO="${ARTIFACT_DIR}/katusaOS-${ARCH}-installer.iso"
+          TARGET_ISO="${ARTIFACT_DIR}/katusaOS-${VERSION}-${ARCH}-installer.iso"
+          if [ -f "${RAW_ISO}" ]; then
+            mv "${RAW_ISO}" "${TARGET_ISO}"
+          fi
+
+          # Generate SHA256 checksums
           cd "${ARTIFACT_DIR}"
           sha256sum "katusaOS-${VERSION}-${ARCH}.img.xz" > "katusaOS-${VERSION}-${ARCH}.img.xz.sha256"
+          if [ -f "katusaOS-${VERSION}-${ARCH}-installer.iso" ]; then
+            sha256sum "katusaOS-${VERSION}-${ARCH}-installer.iso" > "katusaOS-${VERSION}-${ARCH}-installer.iso.sha256"
+          fi
           cd -
 
           echo "[+] Artifacts ready for release:"
@@ -83,6 +93,8 @@ jobs:
           files: |
             ${{ runner.temp }}/release-artifacts/katusaOS-*.img.xz
             ${{ runner.temp }}/release-artifacts/katusaOS-*.img.xz.sha256
+            ${{ runner.temp }}/release-artifacts/katusaOS-*-installer.iso
+            ${{ runner.temp }}/release-artifacts/katusaOS-*-installer.iso.sha256
             ${{ runner.temp }}/release-artifacts/vmlinuz-*
             ${{ runner.temp }}/release-artifacts/initrd-*.img
         env:
