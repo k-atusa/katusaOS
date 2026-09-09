@@ -269,6 +269,11 @@ DESKTOP_PROFILES = {
             "dbus dbus-openrc elogind elogind-openrc eudev eudev-openrc "
             "polkit-elogind font-dejavu firefox"
         ),
+        "check_bins": [
+            "usr/bin/gnome-shell",
+            "usr/bin/gdm",
+            "usr/bin/gnome-session",
+        ],
         "services": [
             ("udev", "sysinit"),
             ("udev-trigger", "sysinit"),
@@ -291,6 +296,11 @@ DESKTOP_PROFILES = {
             "dbus dbus-openrc dbus-x11 elogind elogind-openrc "
             "eudev eudev-openrc polkit-elogind gvfs font-dejavu firefox"
         ),
+        "check_bins": [
+            "usr/bin/xfce4-session",
+            "usr/bin/xfwm4",
+            "usr/bin/lightdm",
+        ],
         "services": [
             ("udev", "sysinit"),
             ("udev-trigger", "sysinit"),
@@ -312,6 +322,11 @@ DESKTOP_PROFILES = {
             "dbus dbus-openrc elogind elogind-openrc "
             "eudev eudev-openrc polkit-elogind font-dejavu firefox"
         ),
+        "check_bins": [
+            "usr/bin/plasmashell",
+            "usr/bin/startplasma-x11",
+            "usr/bin/sddm",
+        ],
         "services": [
             ("udev", "sysinit"),
             ("udev-trigger", "sysinit"),
@@ -332,6 +347,9 @@ DESKTOP_PROFILES = {
             "dbus dbus-openrc elogind elogind-openrc "
             "eudev eudev-openrc polkit-elogind font-dejavu firefox"
         ),
+        "check_bins": [
+            "usr/bin/sway",
+        ],
         "services": [
             ("udev", "sysinit"),
             ("udev-trigger", "sysinit"),
@@ -352,6 +370,11 @@ DESKTOP_PROFILES = {
             "dbus dbus-openrc dbus-x11 elogind elogind-openrc "
             "eudev eudev-openrc polkit-elogind gvfs udisks2 font-dejavu firefox"
         ),
+        "check_bins": [
+            "usr/bin/lxqt-session",
+            "usr/bin/openbox",
+            "usr/bin/sddm",
+        ],
         "services": [
             ("udev", "sysinit"),
             ("udev-trigger", "sysinit"),
@@ -492,13 +515,30 @@ def install_desktop_environment(mount_dir, desktop, username="katusa", progress_
         )
 
     if progress_update:
-        progress_update("Mounting virtual filesystems for chroot environment...")
+        progress_update("Mounting virtual filesystems for target environment...")
 
-    # Bind mount virtual filesystems recursively (including /dev/shm, /dev/pts, /run)
+    # Bind mount virtual filesystems recursively
     run_cmd(f"mount -t proc /proc {mount_dir}/proc 2>/dev/null || true", check=False)
     run_cmd(f"mount -t sysfs /sys {mount_dir}/sys 2>/dev/null || true", check=False)
     run_cmd(f"mount --rbind /dev {mount_dir}/dev 2>/dev/null || mount --bind /dev {mount_dir}/dev 2>/dev/null || true", check=False)
-    run_cmd(f"mount -t tmpfs tmpfs {mount_dir}/run 2>/dev/null || true", check=False)
+
+    # Ensure POSIX shared memory (/dev/shm) is available with 1777 permissions for GUI/D-Bus tools
+    os.makedirs(f"{mount_dir}/dev/shm", exist_ok=True)
+    run_cmd(f"mount -t tmpfs -o rw,nosuid,nodev,noexec,mode=1777 shm {mount_dir}/dev/shm 2>/dev/null || true", check=False)
+
+    # Ensure pseudo-terminal devices (/dev/pts)
+    os.makedirs(f"{mount_dir}/dev/pts", exist_ok=True)
+    run_cmd(f"mount -t devpts -o gid=5,mode=620 devpts {mount_dir}/dev/pts 2>/dev/null || true", check=False)
+
+    # Ensure /run is an active tmpfs
+    os.makedirs(f"{mount_dir}/run", exist_ok=True)
+    run_cmd(f"mount -t tmpfs -o rw,nosuid,nodev,mode=0755 tmpfs {mount_dir}/run 2>/dev/null || true", check=False)
+
+    # Ensure /tmp and /var/tmp exist with sticky bit
+    os.makedirs(f"{mount_dir}/tmp", exist_ok=True)
+    os.chmod(f"{mount_dir}/tmp", 0o1777)
+    os.makedirs(f"{mount_dir}/var/tmp", exist_ok=True)
+    os.chmod(f"{mount_dir}/var/tmp", 0o1777)
 
     # Ensure resolv.conf is copied for DNS resolution (avoid broken symlinks)
     resolv_target = f"{mount_dir}/etc/resolv.conf"
@@ -530,12 +570,17 @@ def install_desktop_environment(mount_dir, desktop, username="katusa", progress_
     # Configure APK repositories (enable main + community, clean cdrom paths)
     configure_target_apk_repos(mount_dir)
 
+    repos_file = f"{mount_dir}/etc/apk/repositories"
+    keys_dir = "/etc/apk/keys" if os.path.isdir("/etc/apk/keys") else f"{mount_dir}/etc/apk/keys"
+    keys_arg = f"--keys-dir {keys_dir}" if os.path.isdir(keys_dir) else ""
+
     try:
         if progress_update:
             progress_update("Updating APK repository package index...")
-        repos_file = f"{mount_dir}/etc/apk/repositories"
+
+        update_cmd = f"apk update --root {mount_dir} --repositories-file {repos_file} {keys_arg}"
         res_update = subprocess.run(
-            f"chroot {mount_dir} apk update",
+            update_cmd,
             shell=True,
             text=True,
             capture_output=True
@@ -548,17 +593,19 @@ def install_desktop_environment(mount_dir, desktop, username="katusa", progress_
                 if "https://" in repos_txt:
                     with open(repos_file, "w") as f:
                         f.write(repos_txt.replace("https://", "http://"))
-                    subprocess.run(f"chroot {mount_dir} apk update", shell=True, text=True, capture_output=True)
+                    subprocess.run(update_cmd, shell=True, text=True, capture_output=True)
 
         if progress_update:
             progress_update(f"Downloading and installing {desktop.upper()} packages via APK...")
 
-        apk_cmd = f"chroot {mount_dir} apk add --no-cache --timeout 60 {profile['packages']}"
+        # Use apk --root directly instead of chroot. This leverages the host's robust network,
+        # DNS, TLS certificates, and apk binary while installing directly into target rootfs.
+        apk_cmd = f"apk add --root {mount_dir} --repositories-file {repos_file} {keys_arg} --no-cache --timeout 60 {profile['packages']}"
         res_add = subprocess.run(apk_cmd, shell=True, text=True, capture_output=True)
 
         if res_add.returncode != 0:
             # Retry with --allow-untrusted if needed
-            apk_cmd_retry = f"chroot {mount_dir} apk add --no-cache --timeout 60 --allow-untrusted {profile['packages']}"
+            apk_cmd_retry = f"apk add --root {mount_dir} --repositories-file {repos_file} {keys_arg} --no-cache --timeout 60 --allow-untrusted {profile['packages']}"
             res_add = subprocess.run(apk_cmd_retry, shell=True, text=True, capture_output=True)
 
         # Log entire output unconditionally to /tmp/katusa-install.log
@@ -568,11 +615,30 @@ def install_desktop_environment(mount_dir, desktop, username="katusa", progress_
         )
         try:
             with open("/tmp/katusa-install.log", "a") as f:
-                f.write(f"\n[{time.strftime('%Y-%m-%d %H:%M:%S')}] APK {desktop.upper()} Full Output:\n{full_apk_output}\n")
+                f.write(f"\n[{time.strftime('%Y-%m-%d %H:%M:%S')}] APK {desktop.upper()} Full Output (exit={res_add.returncode}):\n{full_apk_output}\n")
         except Exception:
             pass
 
-        if res_add.returncode != 0:
+        # Verify whether core desktop binaries were unpacked to disk
+        installed_ok = False
+        check_bins = profile.get("check_bins", [])
+        for cbin in check_bins:
+            if os.path.exists(os.path.join(mount_dir, cbin)):
+                installed_ok = True
+                break
+
+        # If apk exited non-zero (e.g. exit code 1 from a post-install trigger like gtk-update-icon-cache in chroot)
+        # but the core binaries are present, attempt apk fix and treat as successful
+        if res_add.returncode != 0 and installed_ok:
+            fix_cmd = f"apk fix --root {mount_dir} --repositories-file {repos_file} {keys_arg}"
+            subprocess.run(fix_cmd, shell=True, text=True, capture_output=True)
+            res_add_failed = False
+        elif res_add.returncode != 0 and not installed_ok:
+            res_add_failed = True
+        else:
+            res_add_failed = False
+
+        if res_add_failed:
             all_lines = (res_add.stdout or "").splitlines() + (res_add.stderr or "").splitlines()
             error_candidates = []
             for line in all_lines:
@@ -588,6 +654,8 @@ def install_desktop_environment(mount_dir, desktop, username="katusa", progress_
                     or "conflict" in l_str.lower()
                     or "connection failed" in l_str.lower()
                     or "temporary error" in l_str.lower()
+                    or "error;" in l_str.lower()
+                    or "errors;" in l_str.lower()
                 ):
                     if l_str not in error_candidates:
                         error_candidates.append(l_str)
@@ -649,7 +717,9 @@ def install_desktop_environment(mount_dir, desktop, username="katusa", progress_
                 f.write("[Settings]\ngtk-application-prefer-dark-theme=1\n")
 
     finally:
-        # Cleanly unmount chroot filesystems
+        # Cleanly unmount filesystems in reverse order
+        run_cmd(f"umount -l {mount_dir}/dev/shm 2>/dev/null || true", check=False)
+        run_cmd(f"umount -l {mount_dir}/dev/pts 2>/dev/null || true", check=False)
         run_cmd(f"umount -l {mount_dir}/run 2>/dev/null || true", check=False)
         run_cmd(f"umount -l {mount_dir}/proc 2>/dev/null || true", check=False)
         run_cmd(f"umount -l {mount_dir}/sys 2>/dev/null || true", check=False)
