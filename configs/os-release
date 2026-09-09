@@ -1,9 +1,9 @@
 NAME="katusaOS"
-PRETTY_NAME="katusaOS 0.1.1-alpha"
+PRETTY_NAME="katusaOS 0.1.2-alpha"
 ID=katusaOS
 ID_LIKE=alpine
-VERSION_ID="0.1.1-alpha"
-VERSION="0.1.1-alpha"
+VERSION_ID="0.1.2-alpha"
+VERSION="0.1.2-alpha"
 VERSION_CODENAME=alpha
 HOME_URL="https://github.com/k-atusa/katusaOS"
 SUPPORT_URL="https://github.com/k-atusa/katusaOS/issues"

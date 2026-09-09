@@ -1,7 +1,7 @@
 # katusaOS 🚀
 > **Dedicated Custom Linux Operating System for the Katusa Programming Club**
 
-![katusaOS Banner](https://img.shields.io/badge/katusaOS-v0.1.1--alpha-00ADB5?style=for-the-badge)
+![katusaOS Banner](https://img.shields.io/badge/katusaOS-v0.1.2--alpha-00ADB5?style=for-the-badge)
 
 ![Arch](https://img.shields.io/badge/Architecture-amd64%20%7C%20arm64-brightgreen?style=for-the-badge)
 ![Base](https://img.shields.io/badge/Base-Alpine%20Linux%203.20-0D597F?style=for-the-badge)
@@ -27,7 +27,7 @@
   - `katusa cheat <git|tmux|gdb|qemu>`: Quick command reference and cheat sheets.
   - `katusa help`: Built-in CLI guide.
 - **🎨 Tailored Developer Environment (Branding & Dotfiles)**:
-  - Clean pre-login prompt (`katusaOS 0.1.1-alpha (ttyAMA0)`).
+  - Clean pre-login prompt (`katusaOS 0.1.2-alpha (ttyAMA0)`).
   - Dynamic post-login MOTD with club greeting.
   - Optimized `.zshrc`, `.bashrc`, `.tmux.conf`, and `.vimrc` configurations.
   - Default user: `katusa` (password: `katusa`, passwordless `sudo` privileges).
