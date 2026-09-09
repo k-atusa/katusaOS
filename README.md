@@ -149,16 +149,26 @@ katusaOS provides a dedicated interactive **Terminal UI Installer (`katusa-insta
    ```bash
    katusa-install
    ```
+   *(or run non-interactively: `katusa-install --target /dev/vda --mode gpt --desktop xfce --yes`)*
 6. The installer TUI will guide you through:
-   - Target disk selection (e.g. `/dev/vda` 64GB)
-   - Partition scheme & bootloader selection:
+   - **Step 1: Target disk selection** (e.g. `/dev/vda` 64GB)
+   - **Step 2: Partition scheme & bootloader selection**:
      - **GPT (UEFI)**: Modern GUID partition table with FAT32 ESP partition and UEFI bootloader.
      - **MBR (Legacy BIOS)**: Classic MS-DOS partition table with active boot flag and MBR BIOS bootloader.
-   - Formatting and copying system files
+   - **Step 3: Desktop Environment selection**:
+     - **Console (CLI Only)** *(Default)*: Minimal, ultra-fast headless developer terminal (No GUI).
+     - **XFCE4 Desktop** *(Recommended)*: Fast, lightweight classic GUI with LightDM display manager and dark theme.
+     - **GNOME Desktop**: Modern, elegant Wayland desktop environment with GDM.
+     - **KDE Plasma**: Feature-rich, highly customizable modern Qt desktop with SDDM.
+     - **Sway (Wayland)**: Ultra-lightweight i3-compatible tiling Wayland compositor.
+     - **LXQt Desktop**: Extremely lightweight Qt-based desktop environment with SDDM.
+   - Formatting partitions and copying base system files
+   - Downloading & configuring selected Desktop Environment and display manager *(if GUI selected, requires active internet)*
    - Generating system configuration and `/etc/fstab`
 7. Once installation finishes:
    - **VM Environment**: Detach/remove the installer ISO from VM settings and reboot.
    - **USB Boot / Physical Drive**: Detach the installation media and reboot.
+   - If a Desktop Environment was selected, the graphical display manager will start automatically upon login!
 
 #### Method 2: Booting the GPT Disk Image Directly in UTM
 1. In UTM, create a Linux VM without an ISO.

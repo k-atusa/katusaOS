@@ -98,7 +98,8 @@ BASE_PACKAGES=(
     grub-efi \
     dialog \
     ncurses \
-    rsync
+    rsync \
+    alpine-conf
 )
 
 # On x86_64, include grub-bios for Legacy BIOS / MBR partition support
@@ -275,6 +276,9 @@ echo "root:root" | chpasswd
 adduser -D -s /bin/bash -g "katusa" katusa
 echo "katusa:katusa" | chpasswd
 addgroup katusa wheel
+addgroup katusa audio 2>/dev/null || true
+addgroup katusa video 2>/dev/null || true
+addgroup katusa input 2>/dev/null || true
 
 # Copy skel files to katusa home
 cp -r /etc/skel/. /home/katusa/

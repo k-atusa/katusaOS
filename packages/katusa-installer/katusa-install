@@ -188,7 +188,205 @@ def get_partition_names(disk_path, boot_mode="gpt"):
     return p1, p2
 
 
-def perform_installation(target_disk, boot_mode="gpt", hostname="katusaOS", username="katusa", password="katusa", progress_cb=None):
+# ==============================================================================
+# Desktop Environment Definitions & Helpers
+# ==============================================================================
+
+SUPPORTED_DESKTOPS = [
+    {
+        "id": "none",
+        "name": "Console (CLI Only)",
+        "tag": "Default",
+        "desc": "Ultra-lightweight, fast headless terminal environment (No GUI)"
+    },
+    {
+        "id": "xfce",
+        "name": "XFCE4 Desktop",
+        "tag": "Recommended",
+        "desc": "Lightweight, reliable classic desktop with LightDM display manager"
+    },
+    {
+        "id": "gnome",
+        "name": "GNOME Desktop",
+        "tag": "Modern GUI",
+        "desc": "Modern, full-featured Wayland desktop environment with GDM"
+    },
+    {
+        "id": "plasma",
+        "name": "KDE Plasma",
+        "tag": "Customizable",
+        "desc": "Feature-rich, highly customizable modern Qt desktop with SDDM"
+    },
+    {
+        "id": "sway",
+        "name": "Sway (Wayland)",
+        "tag": "Tiling WM",
+        "desc": "Ultra-lightweight i3-compatible tiling Wayland compositor"
+    },
+    {
+        "id": "lxqt",
+        "name": "LXQt Desktop",
+        "tag": "Lightweight Qt",
+        "desc": "Extremely lightweight Qt-based desktop environment with SDDM"
+    }
+]
+
+
+def check_network_connectivity(timeout=3):
+    """Check if internet connectivity is available for downloading packages."""
+    # 1. Try resolving Alpine Linux mirror host
+    try:
+        import socket
+        socket.setdefaulttimeout(timeout)
+        socket.gethostbyname("dl-cdn.alpinelinux.org")
+        return True
+    except Exception:
+        pass
+
+    # 2. Fallback to pinging DNS servers (1.1.1.1 or 8.8.8.8)
+    for dns_ip in ["1.1.1.1", "8.8.8.8"]:
+        try:
+            res = subprocess.run(
+                ["ping", "-c", "1", "-W", str(timeout), dns_ip],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+            if res.returncode == 0:
+                return True
+        except Exception:
+            pass
+
+    return False
+
+
+def _install_desktop_packages_fallback(mount_dir, desktop, username, progress_update=None):
+    """Fallback installation of desktop packages and OpenRC services directly via APK."""
+    profiles = {
+        "xfce": {
+            "packages": "xorg-server xf86-input-libinput xinit eudev mesa-dri-gallium xfce4 xfce4-terminal xfce4-screensaver lightdm lightdm-gtk-greeter elogind polkit-elogind gvfs font-dejavu dbus dbus-x11",
+            "services": ["udev", "udev-trigger", "udev-settle", "dbus", "elogind", "lightdm"]
+        },
+        "gnome": {
+            "packages": "elogind polkit-elogind eudev mesa-dri-gallium gnome gnome-apps-core gdm dbus font-dejavu",
+            "services": ["udev", "udev-trigger", "udev-settle", "dbus", "elogind", "gdm"]
+        },
+        "plasma": {
+            "packages": "elogind polkit-elogind eudev mesa-dri-gallium plasma-desktop-meta kde-applications-base sddm dbus font-dejavu",
+            "services": ["udev", "udev-trigger", "udev-settle", "dbus", "elogind", "sddm"]
+        },
+        "sway": {
+            "packages": "elogind polkit-elogind eudev mesa-dri-gallium sway swaybg swayidle swaylockd foot wmenu xwayland seatd font-dejavu",
+            "services": ["udev", "udev-trigger", "udev-settle", "dbus", "elogind", "seatd"]
+        },
+        "lxqt": {
+            "packages": "xorg-server xf86-input-libinput xinit eudev mesa-dri-gallium lxqt-desktop sddm openbox elogind polkit-elogind gvfs udisks2 font-dejavu dbus dbus-x11",
+            "services": ["udev", "udev-trigger", "udev-settle", "dbus", "elogind", "sddm"]
+        }
+    }
+    cfg = profiles.get(desktop)
+    if not cfg:
+        return
+
+    if progress_update:
+        progress_update(f"Downloading & installing {desktop.upper()} packages via APK...")
+    run_cmd(f"chroot {mount_dir} apk add --no-cache {cfg['packages']}")
+
+    if progress_update:
+        progress_update("Enabling display manager and hardware OpenRC services...")
+    for svc in cfg["services"]:
+        run_cmd(f"chroot {mount_dir} rc-update add {svc} default 2>/dev/null || true", check=False)
+
+
+def install_desktop_environment(mount_dir, desktop, username="katusa", progress_update=None):
+    """
+    Installs and configures the selected Desktop Environment on the target root filesystem.
+    """
+    if not desktop or desktop.lower() == "none":
+        return
+
+    desktop = desktop.lower()
+    valid_ids = [d["id"] for d in SUPPORTED_DESKTOPS if d["id"] != "none"]
+    if desktop not in valid_ids:
+        raise ValueError(f"Unsupported desktop environment: {desktop}")
+
+    if progress_update:
+        progress_update(f"Checking internet connectivity for {desktop.upper()} packages...")
+
+    if not check_network_connectivity():
+        raise RuntimeError(
+            f"Internet connectivity is required to download and install {desktop.upper()} packages, "
+            "but no active network connection was detected. Please connect your network interface or select 'none' (Console only)."
+        )
+
+    if progress_update:
+        progress_update("Mounting virtual filesystems for chroot environment...")
+
+    # Bind mount virtual filesystems
+    run_cmd(f"mount -t proc /proc {mount_dir}/proc 2>/dev/null || true", check=False)
+    run_cmd(f"mount -t sysfs /sys {mount_dir}/sys 2>/dev/null || true", check=False)
+    run_cmd(f"mount --bind /dev {mount_dir}/dev 2>/dev/null || true", check=False)
+    run_cmd(f"mount --bind /dev/pts {mount_dir}/dev/pts 2>/dev/null || true", check=False)
+
+    # Ensure resolv.conf is copied for DNS resolution
+    if os.path.exists("/etc/resolv.conf"):
+        try:
+            shutil.copyfile("/etc/resolv.conf", f"{mount_dir}/etc/resolv.conf")
+        except Exception:
+            pass
+    if not os.path.exists(f"{mount_dir}/etc/resolv.conf") or os.path.getsize(f"{mount_dir}/etc/resolv.conf") == 0:
+        with open(f"{mount_dir}/etc/resolv.conf", "w") as f:
+            f.write("nameserver 1.1.1.1\nnameserver 8.8.8.8\n")
+
+    try:
+        if progress_update:
+            progress_update("Updating APK repository package index...")
+        run_cmd(f"chroot {mount_dir} apk update", check=False)
+
+        has_setup_desktop = (
+            os.path.exists(f"{mount_dir}/sbin/setup-desktop") or
+            os.path.exists(f"{mount_dir}/usr/sbin/setup-desktop")
+        )
+
+        if has_setup_desktop:
+            if progress_update:
+                progress_update(f"Running setup-desktop {desktop} (this may take a few minutes)...")
+            res = subprocess.run(
+                f"chroot {mount_dir} /bin/sh -c 'setup-desktop {desktop}'",
+                shell=True,
+                text=True,
+                capture_output=True
+            )
+            if res.returncode != 0:
+                if progress_update:
+                    progress_update(f"setup-desktop returned warning, installing profile packages directly...")
+                _install_desktop_packages_fallback(mount_dir, desktop, username, progress_update)
+        else:
+            _install_desktop_packages_fallback(mount_dir, desktop, username, progress_update)
+
+        # Ensure user belongs to audio, video, input, seat, netdev groups
+        if progress_update:
+            progress_update(f"Configuring graphical user permissions for '{username}'...")
+        user_groups = ["audio", "video", "input", "seat", "netdev"]
+        for grp in user_groups:
+            run_cmd(f"chroot {mount_dir} addgroup {username} {grp} 2>/dev/null || true", check=False)
+
+        # Set GTK dark theme preference
+        gtk_settings_dir = f"{mount_dir}/etc/gtk-3.0"
+        os.makedirs(gtk_settings_dir, exist_ok=True)
+        gtk_settings_file = f"{gtk_settings_dir}/settings.ini"
+        if not os.path.exists(gtk_settings_file):
+            with open(gtk_settings_file, "w") as f:
+                f.write("[Settings]\ngtk-application-prefer-dark-theme=1\n")
+
+    finally:
+        # Cleanly unmount chroot filesystems
+        run_cmd(f"umount -l {mount_dir}/proc 2>/dev/null || true", check=False)
+        run_cmd(f"umount -l {mount_dir}/sys 2>/dev/null || true", check=False)
+        run_cmd(f"umount -l {mount_dir}/dev/pts 2>/dev/null || true", check=False)
+        run_cmd(f"umount -l {mount_dir}/dev 2>/dev/null || true", check=False)
+
+
+def perform_installation(target_disk, boot_mode="gpt", desktop="none", hostname="katusaOS", username="katusa", password="katusa", progress_cb=None):
     """
     Executes the full installation pipeline:
     1. Unmount existing partitions
@@ -198,12 +396,14 @@ def perform_installation(target_disk, boot_mode="gpt", hostname="katusaOS", user
     5. Copy system files
     6. Configure fstab with UUIDs
     7. Install GRUB bootloader (UEFI or Legacy BIOS)
-    8. Write grub.cfg
-    9. Finalize and unmount
+    8. Write grub.cfg and host configuration
+    9. Install selected Desktop Environment (if specified)
+    10. Finalize and unmount
     """
     boot_mode = (boot_mode or "gpt").lower()
     if boot_mode not in ["gpt", "mbr"]:
         boot_mode = "gpt"
+    desktop = (desktop or "none").lower()
 
     def update(step, total, text):
         if progress_cb:
@@ -213,7 +413,7 @@ def perform_installation(target_disk, boot_mode="gpt", hostname="katusaOS", user
 
     esp_part, root_part = get_partition_names(target_disk, boot_mode)
     mount_dir = "/mnt/katusa-install"
-    total_steps = 9
+    total_steps = 10
 
     # Step 1: Unmount target disk
     update(1, total_steps, f"Unmounting active partitions on {target_disk}...")
@@ -381,6 +581,7 @@ menuentry 'katusaOS (Fallback Recovery)' {{
         f.write(f"INSTALLED_DATE={time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime())}\n")
         f.write(f"TARGET_DISK={target_disk}\n")
         f.write(f"BOOT_MODE={boot_mode.upper()}\n")
+        f.write(f"DESKTOP_ENVIRONMENT={(desktop or 'none').upper()}\n")
         f.write(f"ROOT_UUID={root_uuid}\n")
 
     # Clean login issue banner and MOTD on target disk (remove installer prompt & default credentials)
@@ -418,8 +619,20 @@ menuentry 'katusaOS (Fallback Recovery)' {{
         except Exception:
             pass
 
-    # Step 9: Sync and unmount
-    update(9, total_steps, "Syncing disk buffers and unmounting target...")
+    # Step 9: Configure Desktop Environment
+    if desktop != "none":
+        update(9, total_steps, f"Installing & configuring {desktop.upper()} Desktop Environment...")
+        install_desktop_environment(
+            mount_dir,
+            desktop=desktop,
+            username=username,
+            progress_update=lambda msg: update(9, total_steps, msg)
+        )
+    else:
+        update(9, total_steps, "Configuring console environment (Skipping GUI Desktop)...")
+
+    # Step 10: Sync and unmount
+    update(10, total_steps, "Syncing disk buffers and unmounting target...")
     run_cmd("sync")
     run_cmd(f"umount -R {mount_dir} 2>/dev/null || true", check=False)
     time.sleep(1)
@@ -429,7 +642,7 @@ menuentry 'katusaOS (Fallback Recovery)' {{
 # Curses Terminal User Interface (TUI)
 # ==============================================================================
 
-def run_curses_gui(stdscr, initial_mode="auto"):
+def run_curses_gui(stdscr, initial_mode="auto", initial_desktop="none"):
     import curses
 
     def safe_curs_set(vis):
@@ -607,36 +820,88 @@ def run_curses_gui(stdscr, initial_mode="auto"):
         elif key in [ord('q'), 27]:
             return False
 
+    # Screen 2c: Desktop Environment Selection
+    desktop_idx = 0
+    if initial_desktop:
+        for idx, de in enumerate(SUPPORTED_DESKTOPS):
+            if de["id"] == initial_desktop.lower():
+                desktop_idx = idx
+                break
+
+    selected_desktop = SUPPORTED_DESKTOPS[desktop_idx]["id"]
+    while True:
+        stdscr.clear()
+        h, w = stdscr.getmaxyx()
+
+        title = "★ Step 3: Select Desktop Environment ★"
+        safe_addstr(2, max(0, (w - len(title)) // 2), title, curses.color_pair(1) | curses.A_BOLD)
+        desc = "Choose a graphical desktop environment, or Console for minimal CLI."
+        safe_addstr(4, max(0, (w - len(desc)) // 2), desc, curses.A_DIM)
+
+        start_y = 6
+        for i, de in enumerate(SUPPORTED_DESKTOPS):
+            prefix = "  [>] " if i == desktop_idx else "      "
+            tag = f"  [{de['tag']}]" if de.get("tag") else ""
+            line = f"{prefix}{de['name']:<24}{tag}"
+            attr = curses.color_pair(2) if i == desktop_idx else curses.A_NORMAL
+            safe_addstr(start_y + i * 3, max(4, (w - 74) // 2), line, attr)
+            safe_addstr(start_y + i * 3 + 1, max(4, (w - 74) // 2) + 6, de["desc"], curses.A_DIM)
+
+        warn_net = "Note: Installing a GUI Desktop requires an active internet connection."
+        safe_addstr(h - 3, max(0, (w - len(warn_net)) // 2), warn_net, curses.color_pair(5))
+
+        hint = "Enter: Select Desktop  |  UP/DOWN: Navigate  |  q: Cancel & Exit"
+        safe_addstr(h - 2, max(0, (w - len(hint)) // 2), hint, curses.A_DIM)
+        stdscr.refresh()
+
+        key = stdscr.getch()
+        if key in [curses.KEY_UP, ord('k')]:
+            desktop_idx = (desktop_idx - 1) % len(SUPPORTED_DESKTOPS)
+        elif key in [curses.KEY_DOWN, ord('j')]:
+            desktop_idx = (desktop_idx + 1) % len(SUPPORTED_DESKTOPS)
+        elif key in [10, 13]: # Enter
+            selected_desktop = SUPPORTED_DESKTOPS[desktop_idx]["id"]
+            break
+        elif key in [ord('q'), 27]:
+            return False
+
     # Screen 3: Confirmation Dialog
     stdscr.clear()
     h, w = stdscr.getmaxyx()
 
-    box_w = 66
-    box_h = 16
+    desktop_obj = next((d for d in SUPPORTED_DESKTOPS if d["id"] == selected_desktop), SUPPORTED_DESKTOPS[0])
+    desktop_label = desktop_obj["name"]
+
+    box_w = 70
+    box_h = 18
     box_x = max(0, (w - box_w) // 2)
     box_y = max(0, (h - box_h) // 2)
 
     mode_label = "GPT (UEFI)" if selected_boot_mode == "gpt" else "MBR (Legacy BIOS)"
     warn_title = "⚠ WARNING: DATA DESTRUCTION CONFIRMATION ⚠"
     warn_text1 = f"Target: {target_disk['path']} ({target_disk['size_gb']} GiB)  |  Scheme: {mode_label}"
-    warn_text2 = f"All data on {target_disk['path']} will be PERMANENTLY ERASED!"
-    warn_text3 = f"A fresh {selected_boot_mode.upper()} partition layout and katusaOS will be installed."
+    warn_text2 = f"Desktop Environment: {desktop_label}"
+    warn_text3 = f"All data on {target_disk['path']} will be PERMANENTLY ERASED!"
+    warn_text4 = f"A fresh {selected_boot_mode.upper()} partition layout and katusaOS will be installed."
     prompt = "Type 'YES' to proceed with installation, or 'NO' to abort:"
 
     safe_addstr(box_y, max(0, (w - len(warn_title)) // 2), warn_title, curses.color_pair(3) | curses.A_BOLD)
     safe_addstr(box_y + 2, box_x + 2, warn_text1, curses.A_BOLD)
-    safe_addstr(box_y + 4, box_x + 2, warn_text2, curses.color_pair(3))
-    safe_addstr(box_y + 5, box_x + 2, warn_text3, curses.color_pair(5))
-    safe_addstr(box_y + 7, box_x + 2, prompt, curses.A_BOLD)
+    safe_addstr(box_y + 3, box_x + 2, warn_text2, curses.color_pair(1) | curses.A_BOLD)
+    if selected_desktop != "none":
+        safe_addstr(box_y + 4, box_x + 2, "Note: Active internet connection required for GUI packages.", curses.color_pair(5))
+    safe_addstr(box_y + 6, box_x + 2, warn_text3, curses.color_pair(3))
+    safe_addstr(box_y + 7, box_x + 2, warn_text4, curses.color_pair(5))
+    safe_addstr(box_y + 9, box_x + 2, prompt, curses.A_BOLD)
 
     # Input prompt
     try:
         curses.echo()
         safe_curs_set(1)
-        safe_addstr(box_y + 9, box_x + 2, "Confirmation: ")
+        safe_addstr(box_y + 11, box_x + 2, "Confirmation: ")
         stdscr.refresh()
         input_x = min(box_x + 16, max(0, w - 12))
-        user_input = stdscr.getstr(box_y + 9, input_x, 10).decode("utf-8", errors="ignore").strip()
+        user_input = stdscr.getstr(box_y + 11, input_x, 10).decode("utf-8", errors="ignore").strip()
     finally:
         curses.noecho()
         safe_curs_set(0)
@@ -681,7 +946,12 @@ def run_curses_gui(stdscr, initial_mode="auto"):
         stdscr.refresh()
 
     try:
-        perform_installation(target_disk["path"], boot_mode=selected_boot_mode, progress_cb=progress_callback)
+        perform_installation(
+            target_disk["path"],
+            boot_mode=selected_boot_mode,
+            desktop=selected_desktop,
+            progress_cb=progress_callback
+        )
     except Exception as e:
         stdscr.clear()
         err = f"Installation Failed: {str(e)}"
@@ -695,20 +965,29 @@ def run_curses_gui(stdscr, initial_mode="auto"):
     stdscr.clear()
     h, w = stdscr.getmaxyx()
     succ_title = "🎉 katusaOS Installation Complete! 🎉"
-    safe_addstr(h // 2 - 5, max(0, (w - len(succ_title)) // 2), succ_title, curses.color_pair(4) | curses.A_BOLD)
+    safe_addstr(h // 2 - 6, max(0, (w - len(succ_title)) // 2), succ_title, curses.color_pair(4) | curses.A_BOLD)
 
     info1 = f"katusaOS has been installed successfully onto {target_disk['path']} ({mode_label})."
+    info1_de = f"Installed Desktop: {desktop_label}"
     info2 = "Next steps before rebooting:"
     info3 = "• VM Environment: Detach installer ISO from VM settings, then reboot."
     info4 = "• USB Boot / PC : Detach installation media (USB drive), then reboot."
+    info5 = "• Default user credentials: 'katusa' / password 'katusa'"
+    if selected_desktop != "none":
+        info6 = "• Graphical desktop will launch automatically upon login/boot."
+    else:
+        info6 = "• Boots directly into high-performance developer console."
 
-    safe_addstr(h // 2 - 3, max(0, (w - len(info1)) // 2), info1)
+    safe_addstr(h // 2 - 4, max(0, (w - len(info1)) // 2), info1)
+    safe_addstr(h // 2 - 3, max(0, (w - len(info1_de)) // 2), info1_de, curses.color_pair(1) | curses.A_BOLD)
     safe_addstr(h // 2 - 1, max(0, (w - len(info2)) // 2), info2, curses.color_pair(1) | curses.A_BOLD)
     safe_addstr(h // 2 + 1, max(0, (w - len(info3)) // 2), info3)
     safe_addstr(h // 2 + 2, max(0, (w - len(info4)) // 2), info4)
+    safe_addstr(h // 2 + 3, max(0, (w - len(info5)) // 2), info5, curses.A_DIM)
+    safe_addstr(h // 2 + 4, max(0, (w - len(info6)) // 2), info6, curses.color_pair(5))
 
     btn = "[ Press ENTER to Reboot Now  |  Press 'q' for Terminal ]"
-    safe_addstr(h // 2 + 5, max(0, (w - len(btn)) // 2), btn, curses.color_pair(2))
+    safe_addstr(h // 2 + 6, max(0, (w - len(btn)) // 2), btn, curses.color_pair(2))
     stdscr.refresh()
 
     while True:
@@ -730,6 +1009,8 @@ def main():
     parser.add_argument("--target", "-t", help="Target disk path (e.g. /dev/vda, /dev/sda)")
     parser.add_argument("--mode", "--boot-mode", choices=["auto", "gpt", "mbr"], default="auto",
                         help="Partition table and boot mode: gpt (UEFI), mbr (Legacy BIOS), or auto (default: auto)")
+    parser.add_argument("--desktop", "-d", choices=["none", "xfce", "gnome", "plasma", "sway", "lxqt"],
+                        default="none", help="Desktop environment to install: none, xfce, gnome, plasma, sway, lxqt (default: none)")
     parser.add_argument("--mbr", action="store_true", help="Install using Legacy MBR (msdos) partition table & BIOS bootloader")
     parser.add_argument("--gpt", action="store_true", help="Install using GPT partition table & UEFI bootloader")
     parser.add_argument("--yes", "-y", action="store_true", help="Automatically confirm wiping target disk")
@@ -778,24 +1059,28 @@ def main():
     if args.target:
         target_mode = detect_system_boot_mode() if chosen_mode == "auto" else chosen_mode
         mode_label = "GPT (UEFI)" if target_mode == "gpt" else "MBR (Legacy BIOS)"
+        de_obj = next((d for d in SUPPORTED_DESKTOPS if d["id"] == args.desktop), SUPPORTED_DESKTOPS[0])
         if not args.yes:
             print(f"[!] WARNING: Target disk {args.target} will be completely ERASED.")
             print(f"[!] Partition Table & Boot Mode: {mode_label}")
+            print(f"[!] Desktop Environment: {de_obj['name']}")
+            if args.desktop != "none":
+                print("[!] Note: Active internet connection is required to download GUI packages.")
             confirm = input("Type 'YES' to confirm: ").strip()
             if confirm.upper() != "YES":
                 print("[-] Aborted by user.")
                 sys.exit(1)
 
-        print(f"[+] Starting automated installation onto {args.target} ({mode_label})...")
-        perform_installation(args.target, boot_mode=target_mode)
-        print(f"[✓] katusaOS installed successfully on {args.target} ({mode_label})!")
+        print(f"[+] Starting automated installation onto {args.target} ({mode_label}, {de_obj['name']})...")
+        perform_installation(args.target, boot_mode=target_mode, desktop=args.desktop)
+        print(f"[✓] katusaOS installed successfully on {args.target} ({mode_label}, {de_obj['name']})!")
         sys.exit(0)
 
     # If terminal supports curses and not forced to CLI
     if not args.cli and sys.stdin.isatty():
         try:
             import curses
-            result = curses.wrapper(lambda s: run_curses_gui(s, initial_mode=chosen_mode))
+            result = curses.wrapper(lambda s: run_curses_gui(s, initial_mode=chosen_mode, initial_desktop=args.desktop))
             if result == "reboot":
                 print("\n[+] Installation complete. Rebooting system now...")
                 run_cmd("reboot 2>/dev/null || true", check=False)
@@ -852,19 +1137,42 @@ def main():
         else:
             selected_mode = detected
 
+    if args.desktop != "none":
+        selected_desktop = args.desktop
+    else:
+        print("\nSelect Desktop Environment:")
+        for idx, de in enumerate(SUPPORTED_DESKTOPS, 1):
+            tag = f" [{de['tag']}]" if de.get("tag") else ""
+            print(f"  [{idx}] {de['name']:<22}{tag} - {de['desc']}")
+        de_choice = input("Select desktop [1-6, default 1]: ").strip()
+        try:
+            de_idx = int(de_choice) - 1
+            if 0 <= de_idx < len(SUPPORTED_DESKTOPS):
+                selected_desktop = SUPPORTED_DESKTOPS[de_idx]["id"]
+            else:
+                selected_desktop = "none"
+        except ValueError:
+            selected_desktop = "none"
+
+    de_obj = next((d for d in SUPPORTED_DESKTOPS if d["id"] == selected_desktop), SUPPORTED_DESKTOPS[0])
     mode_label = "GPT (UEFI)" if selected_mode == "gpt" else "MBR (Legacy BIOS)"
     print(f"\n[!] WARNING: All data on {selected['path']} ({selected['size_gb']} GiB) will be DESTROYED!")
     print(f"[!] Target Partition Scheme & Bootloader: {mode_label}")
+    print(f"[!] Desktop Environment: {de_obj['name']}")
+    if selected_desktop != "none":
+        print("[!] Note: Active internet connection is required to download GUI packages.")
     confirm = input("Type 'YES' to proceed: ").strip()
     if confirm.upper() != "YES":
         print("[-] Installation aborted.")
         sys.exit(1)
 
-    perform_installation(selected["path"], boot_mode=selected_mode)
-    print(f"\n[✓] katusaOS successfully installed to {selected['path']} ({mode_label})!")
+    perform_installation(selected["path"], boot_mode=selected_mode, desktop=selected_desktop)
+    print(f"\n[✓] katusaOS successfully installed to {selected['path']} ({mode_label}, {de_obj['name']})!")
     print("\nNext steps before rebooting:")
     print("  • VM Environment: Detach installer ISO from VM settings, then reboot.")
     print("  • USB Boot / PC : Detach installation media (USB drive), then reboot.")
+    if selected_desktop != "none":
+        print("  • Graphical desktop will launch automatically upon login / boot.")
     try:
         choice = input("\nReboot system now? [Y/n]: ").strip().lower()
         if choice in ["", "y", "yes"]:
