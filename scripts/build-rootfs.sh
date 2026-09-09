@@ -159,6 +159,11 @@ cp "${REPO_ROOT}/configs/hostname" "${ROOTFS_DIR}/etc/hostname"
 cp "${REPO_ROOT}/configs/issue" "${ROOTFS_DIR}/etc/issue"
 cp "${REPO_ROOT}/configs/issue" "${ROOTFS_DIR}/etc/issue.net"
 
+# Inject custom GRUB default configuration and disable automatic update-grub trigger
+mkdir -p "${ROOTFS_DIR}/etc/default"
+cp "${REPO_ROOT}/configs/default/grub" "${ROOTFS_DIR}/etc/default/grub"
+cp "${REPO_ROOT}/configs/update-grub.conf" "${ROOTFS_DIR}/etc/update-grub.conf"
+
 # Copy MOTD banner (Alpine prints /etc/motd upon login)
 mkdir -p "${ROOTFS_DIR}/etc"
 cat << 'EOF' > "${ROOTFS_DIR}/etc/motd"

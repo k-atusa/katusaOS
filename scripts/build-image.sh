@@ -103,6 +103,11 @@ menuentry 'katusaOS (Fallback Recovery)' {
 }
 EOF
 
+# Ensure /etc/default/grub and /etc/update-grub.conf are present on rootfs
+mkdir -p "${ROOTFS_DIR}/etc/default"
+cp -f "${REPO_ROOT}/configs/default/grub" "${ROOTFS_DIR}/etc/default/grub" 2>/dev/null || true
+cp -f "${REPO_ROOT}/configs/update-grub.conf" "${ROOTFS_DIR}/etc/update-grub.conf" 2>/dev/null || true
+
 # Step 4: Build standalone EFI bootloader binary with embedded early search config
 echo "[+] Generating early GRUB bootstrap config..."
 cat << 'EOF' > "${BUILD_DIR}/early-grub.cfg"
