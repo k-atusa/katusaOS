@@ -468,14 +468,37 @@ def install_desktop_environment(mount_dir, desktop, username="katusa", progress_
             "but no active network connection was detected. Please connect your network interface or select 'none' (Console only)."
         )
 
+    # Check available partition space before downloading heavy packages
+    try:
+        total, used, free = shutil.disk_usage(mount_dir)
+        free_mb = free // (1024 * 1024)
+    except Exception:
+        free_mb = 999999
+
+    req_space_map = {
+        "gnome": 3500,
+        "plasma": 3000,
+        "xfce": 1800,
+        "sway": 1800,
+        "lxqt": 1800,
+    }
+    required_mb = req_space_map.get(desktop, 1800)
+    if free_mb < required_mb:
+        raise RuntimeError(
+            f"Insufficient disk space on target partition ({mount_dir})!\n"
+            f"  Available: {free_mb} MB ({round(free_mb / 1024, 2)} GB)\n"
+            f"  Required for {desktop.upper()}: {required_mb} MB ({round(required_mb / 1024, 2)} GB)\n\n"
+            f"Please enlarge your target virtual disk in VM settings (recommended: 15 GB - 64 GB)."
+        )
+
     if progress_update:
         progress_update("Mounting virtual filesystems for chroot environment...")
 
-    # Bind mount virtual filesystems
+    # Bind mount virtual filesystems recursively (including /dev/shm, /dev/pts, /run)
     run_cmd(f"mount -t proc /proc {mount_dir}/proc 2>/dev/null || true", check=False)
     run_cmd(f"mount -t sysfs /sys {mount_dir}/sys 2>/dev/null || true", check=False)
-    run_cmd(f"mount --bind /dev {mount_dir}/dev 2>/dev/null || true", check=False)
-    run_cmd(f"mount --bind /dev/pts {mount_dir}/dev/pts 2>/dev/null || true", check=False)
+    run_cmd(f"mount --rbind /dev {mount_dir}/dev 2>/dev/null || mount --bind /dev {mount_dir}/dev 2>/dev/null || true", check=False)
+    run_cmd(f"mount -t tmpfs tmpfs {mount_dir}/run 2>/dev/null || true", check=False)
 
     # Ensure resolv.conf is copied for DNS resolution (avoid broken symlinks)
     resolv_target = f"{mount_dir}/etc/resolv.conf"
@@ -529,25 +552,54 @@ def install_desktop_environment(mount_dir, desktop, username="katusa", progress_
 
         if progress_update:
             progress_update(f"Downloading and installing {desktop.upper()} packages via APK...")
-        res_add = subprocess.run(
-            f"chroot {mount_dir} apk add --no-cache {profile['packages']}",
-            shell=True,
-            text=True,
-            capture_output=True
-        )
+
+        apk_cmd = f"chroot {mount_dir} apk add --no-cache --timeout 60 {profile['packages']}"
+        res_add = subprocess.run(apk_cmd, shell=True, text=True, capture_output=True)
+
         if res_add.returncode != 0:
             # Retry with --allow-untrusted if needed
-            res_add = subprocess.run(
-                f"chroot {mount_dir} apk add --no-cache --allow-untrusted {profile['packages']}",
-                shell=True,
-                text=True,
-                capture_output=True
+            apk_cmd_retry = f"chroot {mount_dir} apk add --no-cache --timeout 60 --allow-untrusted {profile['packages']}"
+            res_add = subprocess.run(apk_cmd_retry, shell=True, text=True, capture_output=True)
+
+        # Log entire output unconditionally to /tmp/katusa-install.log
+        full_apk_output = (
+            f"=== STDOUT ===\n{res_add.stdout or ''}\n\n"
+            f"=== STDERR ===\n{res_add.stderr or ''}\n"
+        )
+        try:
+            with open("/tmp/katusa-install.log", "a") as f:
+                f.write(f"\n[{time.strftime('%Y-%m-%d %H:%M:%S')}] APK {desktop.upper()} Full Output:\n{full_apk_output}\n")
+        except Exception:
+            pass
+
+        if res_add.returncode != 0:
+            all_lines = (res_add.stdout or "").splitlines() + (res_add.stderr or "").splitlines()
+            error_candidates = []
+            for line in all_lines:
+                l_str = line.strip()
+                if not l_str:
+                    continue
+                if (
+                    l_str.startswith("ERROR:")
+                    or "no space left" in l_str.lower()
+                    or "failed to" in l_str.lower()
+                    or "script exited with error" in l_str.lower()
+                    or "untrusted" in l_str.lower()
+                    or "conflict" in l_str.lower()
+                    or "connection failed" in l_str.lower()
+                    or "temporary error" in l_str.lower()
+                ):
+                    if l_str not in error_candidates:
+                        error_candidates.append(l_str)
+
+            if error_candidates:
+                err_summary = "\n".join(error_candidates[-6:])
+            else:
+                err_summary = "\n".join([l.strip() for l in all_lines if l.strip()][-6:])
+
+            raise RuntimeError(
+                f"APK failed to install {desktop.upper()} packages:\n{err_summary}"
             )
-            if res_add.returncode != 0:
-                err_detail = res_add.stderr.strip() if res_add.stderr else res_add.stdout.strip()
-                raise RuntimeError(
-                    f"APK failed to install {desktop.upper()} packages:\n{err_detail}"
-                )
 
         if progress_update:
             progress_update("Configuring OpenRC services and hardware device management...")
@@ -598,10 +650,10 @@ def install_desktop_environment(mount_dir, desktop, username="katusa", progress_
 
     finally:
         # Cleanly unmount chroot filesystems
+        run_cmd(f"umount -l {mount_dir}/run 2>/dev/null || true", check=False)
         run_cmd(f"umount -l {mount_dir}/proc 2>/dev/null || true", check=False)
         run_cmd(f"umount -l {mount_dir}/sys 2>/dev/null || true", check=False)
-        run_cmd(f"umount -l {mount_dir}/dev/pts 2>/dev/null || true", check=False)
-        run_cmd(f"umount -l {mount_dir}/dev 2>/dev/null || true", check=False)
+        run_cmd(f"umount -R {mount_dir}/dev 2>/dev/null || umount -l {mount_dir}/dev 2>/dev/null || true", check=False)
 
 
 def perform_installation(target_disk, boot_mode="gpt", desktop="none", hostname="katusaOS", username="katusa", password="katusa", progress_cb=None):

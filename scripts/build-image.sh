@@ -4,7 +4,7 @@
 set -euo pipefail
 
 ARCH="${1:-amd64}"
-IMAGE_SIZE_MB="${IMAGE_SIZE_MB:-4096}"
+IMAGE_SIZE_MB="${IMAGE_SIZE_MB:-8192}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 OUTPUT_DIR="${OUTPUT_DIR:-${REPO_ROOT}/output}"
