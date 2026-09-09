@@ -259,42 +259,111 @@ def check_network_connectivity(timeout=3):
     return False
 
 
-def _install_desktop_packages_fallback(mount_dir, desktop, username, progress_update=None):
-    """Fallback installation of desktop packages and OpenRC services directly via APK."""
-    profiles = {
-        "xfce": {
-            "packages": "xorg-server xf86-input-libinput xinit eudev mesa-dri-gallium xfce4 xfce4-terminal xfce4-screensaver lightdm lightdm-gtk-greeter elogind polkit-elogind gvfs font-dejavu dbus dbus-x11",
-            "services": ["udev", "udev-trigger", "udev-settle", "dbus", "elogind", "lightdm"]
-        },
-        "gnome": {
-            "packages": "elogind polkit-elogind eudev mesa-dri-gallium gnome gnome-apps-core gdm dbus font-dejavu",
-            "services": ["udev", "udev-trigger", "udev-settle", "dbus", "elogind", "gdm"]
-        },
-        "plasma": {
-            "packages": "elogind polkit-elogind eudev mesa-dri-gallium plasma-desktop-meta kde-applications-base sddm dbus font-dejavu",
-            "services": ["udev", "udev-trigger", "udev-settle", "dbus", "elogind", "sddm"]
-        },
-        "sway": {
-            "packages": "elogind polkit-elogind eudev mesa-dri-gallium sway swaybg swayidle swaylockd foot wmenu xwayland seatd font-dejavu",
-            "services": ["udev", "udev-trigger", "udev-settle", "dbus", "elogind", "seatd"]
-        },
-        "lxqt": {
-            "packages": "xorg-server xf86-input-libinput xinit eudev mesa-dri-gallium lxqt-desktop sddm openbox elogind polkit-elogind gvfs udisks2 font-dejavu dbus dbus-x11",
-            "services": ["udev", "udev-trigger", "udev-settle", "dbus", "elogind", "sddm"]
-        }
-    }
-    cfg = profiles.get(desktop)
-    if not cfg:
-        return
-
-    if progress_update:
-        progress_update(f"Downloading & installing {desktop.upper()} packages via APK...")
-    run_cmd(f"chroot {mount_dir} apk add --no-cache {cfg['packages']}")
-
-    if progress_update:
-        progress_update("Enabling display manager and hardware OpenRC services...")
-    for svc in cfg["services"]:
-        run_cmd(f"chroot {mount_dir} rc-update add {svc} default 2>/dev/null || true", check=False)
+DESKTOP_PROFILES = {
+    "gnome": {
+        "packages": (
+            "gnome gnome-apps-core gdm gdm-openrc "
+            "xorg-server xf86-input-libinput xinit xwayland "
+            "mesa-dri-gallium mesa-gles mesa-egl "
+            "dbus dbus-openrc elogind elogind-openrc eudev eudev-openrc "
+            "polkit-elogind font-dejavu firefox"
+        ),
+        "services": [
+            ("udev", "sysinit"),
+            ("udev-trigger", "sysinit"),
+            ("udev-settle", "sysinit"),
+            ("dbus", "default"),
+            ("elogind", "default"),
+            ("gdm", "default"),
+        ],
+        "remove_services": [
+            ("mdev", "sysinit"),
+        ],
+        "gdm_custom": True,
+    },
+    "xfce": {
+        "packages": (
+            "xfce4 xfce4-terminal xfce4-screensaver "
+            "lightdm lightdm-openrc lightdm-gtk-greeter "
+            "xorg-server xf86-input-libinput xinit "
+            "mesa-dri-gallium mesa-gles mesa-egl "
+            "dbus dbus-openrc dbus-x11 elogind elogind-openrc "
+            "eudev eudev-openrc polkit-elogind gvfs font-dejavu firefox"
+        ),
+        "services": [
+            ("udev", "sysinit"),
+            ("udev-trigger", "sysinit"),
+            ("udev-settle", "sysinit"),
+            ("dbus", "default"),
+            ("elogind", "default"),
+            ("lightdm", "default"),
+        ],
+        "remove_services": [
+            ("mdev", "sysinit"),
+        ],
+    },
+    "plasma": {
+        "packages": (
+            "plasma-desktop-meta kde-applications-base "
+            "sddm sddm-openrc "
+            "xorg-server xf86-input-libinput xinit xwayland "
+            "mesa-dri-gallium mesa-gles mesa-egl "
+            "dbus dbus-openrc elogind elogind-openrc "
+            "eudev eudev-openrc polkit-elogind font-dejavu firefox"
+        ),
+        "services": [
+            ("udev", "sysinit"),
+            ("udev-trigger", "sysinit"),
+            ("udev-settle", "sysinit"),
+            ("dbus", "default"),
+            ("elogind", "default"),
+            ("sddm", "default"),
+        ],
+        "remove_services": [
+            ("mdev", "sysinit"),
+        ],
+    },
+    "sway": {
+        "packages": (
+            "sway swaybg swayidle swaylockd foot wmenu xwayland "
+            "seatd seatd-openrc "
+            "mesa-dri-gallium mesa-gles mesa-egl "
+            "dbus dbus-openrc elogind elogind-openrc "
+            "eudev eudev-openrc polkit-elogind font-dejavu firefox"
+        ),
+        "services": [
+            ("udev", "sysinit"),
+            ("udev-trigger", "sysinit"),
+            ("udev-settle", "sysinit"),
+            ("dbus", "default"),
+            ("elogind", "default"),
+            ("seatd", "default"),
+        ],
+        "remove_services": [
+            ("mdev", "sysinit"),
+        ],
+    },
+    "lxqt": {
+        "packages": (
+            "lxqt-desktop sddm sddm-openrc openbox "
+            "xorg-server xf86-input-libinput xinit "
+            "mesa-dri-gallium mesa-gles mesa-egl "
+            "dbus dbus-openrc dbus-x11 elogind elogind-openrc "
+            "eudev eudev-openrc polkit-elogind gvfs udisks2 font-dejavu firefox"
+        ),
+        "services": [
+            ("udev", "sysinit"),
+            ("udev-trigger", "sysinit"),
+            ("udev-settle", "sysinit"),
+            ("dbus", "default"),
+            ("elogind", "default"),
+            ("sddm", "default"),
+        ],
+        "remove_services": [
+            ("mdev", "sysinit"),
+        ],
+    },
+}
 
 
 def install_desktop_environment(mount_dir, desktop, username="katusa", progress_update=None):
@@ -308,6 +377,10 @@ def install_desktop_environment(mount_dir, desktop, username="katusa", progress_
     valid_ids = [d["id"] for d in SUPPORTED_DESKTOPS if d["id"] != "none"]
     if desktop not in valid_ids:
         raise ValueError(f"Unsupported desktop environment: {desktop}")
+
+    profile = DESKTOP_PROFILES.get(desktop)
+    if not profile:
+        raise ValueError(f"No profile defined for desktop environment: {desktop}")
 
     if progress_update:
         progress_update(f"Checking internet connectivity for {desktop.upper()} packages...")
@@ -342,26 +415,41 @@ def install_desktop_environment(mount_dir, desktop, username="katusa", progress_
             progress_update("Updating APK repository package index...")
         run_cmd(f"chroot {mount_dir} apk update", check=False)
 
-        has_setup_desktop = (
-            os.path.exists(f"{mount_dir}/sbin/setup-desktop") or
-            os.path.exists(f"{mount_dir}/usr/sbin/setup-desktop")
-        )
+        if progress_update:
+            progress_update(f"Downloading and installing {desktop.upper()} packages via APK...")
+        run_cmd(f"chroot {mount_dir} apk add --no-cache {profile['packages']}")
 
-        if has_setup_desktop:
-            if progress_update:
-                progress_update(f"Running setup-desktop {desktop} (this may take a few minutes)...")
-            res = subprocess.run(
-                f"chroot {mount_dir} /bin/sh -c 'setup-desktop {desktop}'",
-                shell=True,
-                text=True,
-                capture_output=True
-            )
-            if res.returncode != 0:
-                if progress_update:
-                    progress_update(f"setup-desktop returned warning, installing profile packages directly...")
-                _install_desktop_packages_fallback(mount_dir, desktop, username, progress_update)
-        else:
-            _install_desktop_packages_fallback(mount_dir, desktop, username, progress_update)
+        if progress_update:
+            progress_update("Configuring OpenRC services and hardware device management...")
+
+        # Remove conflicting services
+        for svc, runlevel in profile.get("remove_services", []):
+            run_cmd(f"chroot {mount_dir} rc-update del {svc} {runlevel} 2>/dev/null || true", check=False)
+
+        # Enable profile services in appropriate runlevels
+        for svc, runlevel in profile.get("services", []):
+            run_cmd(f"chroot {mount_dir} rc-update add {svc} {runlevel} 2>/dev/null || true", check=False)
+
+        # For GNOME: enforce Xorg mode in GDM custom.conf for virtual machine compatibility
+        if profile.get("gdm_custom"):
+            gdm_conf = f"{mount_dir}/etc/gdm/custom.conf"
+            if os.path.exists(gdm_conf):
+                with open(gdm_conf, "r") as f:
+                    content = f.read()
+                if "WaylandEnable=false" not in content:
+                    content = content.replace("#WaylandEnable=false", "WaylandEnable=false")
+                    if "WaylandEnable=false" not in content:
+                        content = content.replace("[daemon]", "[daemon]\nWaylandEnable=false")
+                with open(gdm_conf, "w") as f:
+                    f.write(content)
+            else:
+                os.makedirs(f"{mount_dir}/etc/gdm", exist_ok=True)
+                with open(gdm_conf, "w") as f:
+                    f.write("# GDM configuration storage\n[daemon]\nWaylandEnable=false\n")
+
+            # Add gdm user to video and input groups
+            run_cmd(f"chroot {mount_dir} addgroup gdm video 2>/dev/null || true", check=False)
+            run_cmd(f"chroot {mount_dir} addgroup gdm input 2>/dev/null || true", check=False)
 
         # Ensure user belongs to audio, video, input, seat, netdev groups
         if progress_update:
@@ -537,7 +625,7 @@ def perform_installation(target_disk, boot_mode="gpt", desktop="none", hostname=
     # Step 8: Configure grub.cfg and host settings
     update(8, total_steps, "Generating GRUB configuration and finalizing system...")
     os.makedirs(f"{mount_dir}/boot/grub", exist_ok=True)
-    console_param = "console=tty0 console=ttyAMA0" if arch in ["aarch64", "arm64"] else "console=tty0 console=ttyS0"
+    console_param = "console=ttyAMA0 console=tty0" if arch in ["aarch64", "arm64"] else "console=ttyS0 console=tty0"
     grub_cfg = f"""# GRUB Configuration for katusaOS
 set default=0
 set timeout=3
