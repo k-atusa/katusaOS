@@ -848,6 +848,95 @@ def install_desktop_environment(mount_dir, desktop, username="katusa", progress_
                 if os.path.isdir(f"{icons_dir}/{theme}"):
                     run_cmd(f"chroot {mount_dir} gtk-update-icon-cache -f -t /usr/share/icons/{theme} 2>/dev/null || true", check=False)
 
+            # 6. Configure Openbox standalone session autostart & menu so it is not a black screen
+            ob_xdg_dir = f"{mount_dir}/etc/xdg/openbox"
+            os.makedirs(ob_xdg_dir, exist_ok=True)
+            ob_autostart_content = (
+                "#!/bin/sh\n"
+                "# Openbox Autostart for katusaOS\n\n"
+                "# Start D-Bus session if needed\n"
+                "if which dbus-launch >/dev/null 2>&1 && test -z \"$DBUS_SESSION_BUS_ADDRESS\"; then\n"
+                "    eval `dbus-launch --sh-syntax --exit-with-session`\n"
+                "fi\n\n"
+                "# Start desktop wallpaper & folder icons\n"
+                "if which pcmanfm-qt >/dev/null 2>&1; then\n"
+                "    pcmanfm-qt --desktop &\n"
+                "fi\n\n"
+                "# Start panel\n"
+                "if which lxqt-panel >/dev/null 2>&1; then\n"
+                "    lxqt-panel &\n"
+                "fi\n\n"
+                "# Start notification daemon\n"
+                "if which lxqt-notificationd >/dev/null 2>&1; then\n"
+                "    lxqt-notificationd &\n"
+                "fi\n\n"
+                "# Start polkit authentication agent\n"
+                "if which lxqt-policykit-agent >/dev/null 2>&1; then\n"
+                "    lxqt-policykit-agent &\n"
+                "fi\n"
+            )
+            with open(f"{ob_xdg_dir}/autostart", "w") as f:
+                f.write(ob_autostart_content)
+            os.chmod(f"{ob_xdg_dir}/autostart", 0o755)
+
+            ob_menu_content = (
+                '<?xml version="1.0" encoding="UTF-8"?>\n'
+                '<openbox_menu xmlns="http://openbox.org/3.4/menu">\n'
+                '<menu id="root-menu" label="Openbox">\n'
+                '  <item label="Terminal">\n'
+                '    <action name="Execute"><command>qterminal</command></action>\n'
+                '  </item>\n'
+                '  <item label="Web Browser">\n'
+                '    <action name="Execute"><command>firefox</command></action>\n'
+                '  </item>\n'
+                '  <item label="File Manager">\n'
+                '    <action name="Execute"><command>pcmanfm-qt</command></action>\n'
+                '  </item>\n'
+                '  <separator />\n'
+                '  <item label="LXQt Settings">\n'
+                '    <action name="Execute"><command>lxqt-config</command></action>\n'
+                '  </item>\n'
+                '  <separator />\n'
+                '  <item label="Restart Openbox">\n'
+                '    <action name="Restart" />\n'
+                '  </item>\n'
+                '  <item label="Log Out">\n'
+                '    <action name="Exit" />\n'
+                '  </item>\n'
+                '</menu>\n'
+                '</openbox_menu>\n'
+            )
+            with open(f"{ob_xdg_dir}/menu.xml", "w") as f:
+                f.write(ob_menu_content)
+
+            # Copy Openbox autostart & menu to user home and skel
+            for base_dir in [f"{mount_dir}/etc/skel", f"{mount_dir}/home/{username}"]:
+                if os.path.exists(base_dir):
+                    u_ob = f"{base_dir}/.config/openbox"
+                    os.makedirs(u_ob, exist_ok=True)
+                    with open(f"{u_ob}/autostart", "w") as f:
+                        f.write(ob_autostart_content)
+                    os.chmod(f"{u_ob}/autostart", 0o755)
+                    with open(f"{u_ob}/menu.xml", "w") as f:
+                        f.write(ob_menu_content)
+
+            # Re-ensure ownership for user configs
+            run_cmd(f"chroot {mount_dir} chown -R {username}:{username} /home/{username}/.config 2>/dev/null || true", check=False)
+
+            # 7. SDDM default session configuration
+            sddm_conf_dir = f"{mount_dir}/etc/sddm.conf.d"
+            os.makedirs(sddm_conf_dir, exist_ok=True)
+            with open(f"{sddm_conf_dir}/10-session.conf", "w") as f:
+                f.write(
+                    "[General]\n"
+                    "DisplayServer=x11\n\n"
+                    "[Users]\n"
+                    "RememberLastSession=true\n"
+                    "RememberLastUser=true\n\n"
+                    "[Autologin]\n"
+                    "Session=lxqt.desktop\n"
+                )
+
         # Set GTK dark theme & icon preferences
         gtk_settings_dir = f"{mount_dir}/etc/gtk-3.0"
         os.makedirs(gtk_settings_dir, exist_ok=True)
