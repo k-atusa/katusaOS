@@ -368,7 +368,9 @@ DESKTOP_PROFILES = {
             "xorg-server xf86-input-libinput xinit "
             "mesa-dri-gallium mesa-gles mesa-egl "
             "dbus dbus-openrc dbus-x11 elogind elogind-openrc "
-            "eudev eudev-openrc polkit-elogind gvfs udisks2 font-dejavu firefox"
+            "eudev eudev-openrc polkit-elogind gvfs udisks2 font-dejavu firefox "
+            "papirus-icon-theme adwaita-icon-theme adwaita-xfce-icon-theme breeze-icons "
+            "qt5-qtimageformats gtk-update-icon-cache"
         ),
         "check_bins": [
             "usr/bin/lxqt-session",
@@ -503,7 +505,7 @@ def install_desktop_environment(mount_dir, desktop, username="katusa", progress_
         "plasma": 3000,
         "xfce": 1800,
         "sway": 1800,
-        "lxqt": 1800,
+        "lxqt": 2200,
     }
     required_mb = req_space_map.get(desktop, 1800)
     if free_mb < required_mb:
@@ -730,13 +732,143 @@ def install_desktop_environment(mount_dir, desktop, username="katusa", progress_
         for grp in user_groups:
             run_cmd(f"chroot {mount_dir} addgroup {username} {grp} 2>/dev/null || true", check=False)
 
-        # Set GTK dark theme preference
+        # If LXQt was selected, configure LXQt and PCManFM-Qt desktop icon theme defaults
+        if desktop == "lxqt":
+            if progress_update:
+                progress_update("Configuring LXQt and PCManFM-Qt icon themes & desktop appearance...")
+
+            # 1. System-wide LXQt session configuration (/etc/xdg/lxqt/lxqt.conf)
+            lxqt_conf_dir = f"{mount_dir}/etc/xdg/lxqt"
+            os.makedirs(lxqt_conf_dir, exist_ok=True)
+            with open(f"{lxqt_conf_dir}/lxqt.conf", "w") as f:
+                f.write(
+                    "[General]\n"
+                    "theme=Clearlooks\n"
+                    "icon_theme=Papirus-Dark\n"
+                    "single_click_activate=false\n"
+                    "tool_button_style=ToolButtonTextBesideIcon\n"
+                    "palette_override=true\n\n"
+                    "[Qt]\n"
+                    'font="Sans,10,-1,5,50,0,0,0,0,0"\n'
+                    "style=Fusion\n"
+                )
+
+            # 2. System-wide PCManFM-Qt configuration (/etc/xdg/pcmanfm-qt/lxqt/settings.conf)
+            pcmanfm_conf_dir = f"{mount_dir}/etc/xdg/pcmanfm-qt/lxqt"
+            os.makedirs(pcmanfm_conf_dir, exist_ok=True)
+            with open(f"{pcmanfm_conf_dir}/settings.conf", "w") as f:
+                f.write(
+                    "[System]\n"
+                    "IconThemeName=Papirus-Dark\n"
+                    "FallbackIconThemeName=Adwaita\n"
+                    "SuCommand=lxsudo dbus-run-session -- %s\n"
+                    "Archiver=lxqt-archiver\n"
+                    "SIUnit=false\n"
+                    "Terminal=qterminal\n\n"
+                    "[Behavior]\n"
+                    "BookmarkOpenMethod=0\n"
+                    "UseTrash=true\n"
+                    "SingleClick=false\n"
+                    "ConfirmDelete=true\n\n"
+                    "[Desktop]\n"
+                    "DesktopShortcuts=Home, Trash, Computer, Network\n"
+                    "WallpaperMode=stretch\n"
+                    "BgColor=#000000\n"
+                    "FgColor=#ffffff\n"
+                    "ShadowColor=#000000\n"
+                    "ShowHidden=false\n"
+                    "SortOrder=ascending\n"
+                    "SortColumn=name\n"
+                    'Font="Sans Serif,10,-1,5,50,0,0,0,0,0"\n\n'
+                    "[Volume]\n"
+                    "MountOnStartup=true\n"
+                    "MountRemovable=true\n"
+                    "AutoRun=true\n"
+                )
+
+            # 3. User & skeleton configurations
+            for base_dir in [f"{mount_dir}/etc/skel", f"{mount_dir}/home/{username}"]:
+                if os.path.exists(base_dir):
+                    u_lxqt = f"{base_dir}/.config/lxqt"
+                    u_pcmanfm = f"{base_dir}/.config/pcmanfm-qt/lxqt"
+                    os.makedirs(u_lxqt, exist_ok=True)
+                    os.makedirs(u_pcmanfm, exist_ok=True)
+                    with open(f"{u_lxqt}/lxqt.conf", "w") as f:
+                        f.write(
+                            "[General]\n"
+                            "theme=Clearlooks\n"
+                            "icon_theme=Papirus-Dark\n"
+                            "single_click_activate=false\n"
+                            "tool_button_style=ToolButtonTextBesideIcon\n"
+                            "palette_override=true\n\n"
+                            "[Qt]\n"
+                            'font="Sans,10,-1,5,50,0,0,0,0,0"\n'
+                            "style=Fusion\n"
+                        )
+                    with open(f"{u_pcmanfm}/settings.conf", "w") as f:
+                        f.write(
+                            "[System]\n"
+                            "IconThemeName=Papirus-Dark\n"
+                            "FallbackIconThemeName=Adwaita\n"
+                            "SuCommand=lxsudo dbus-run-session -- %s\n"
+                            "Archiver=lxqt-archiver\n"
+                            "SIUnit=false\n"
+                            "Terminal=qterminal\n\n"
+                            "[Behavior]\n"
+                            "BookmarkOpenMethod=0\n"
+                            "UseTrash=true\n"
+                            "SingleClick=false\n"
+                            "ConfirmDelete=true\n\n"
+                            "[Desktop]\n"
+                            "DesktopShortcuts=Home, Trash, Computer, Network\n"
+                            "WallpaperMode=stretch\n"
+                            "BgColor=#000000\n"
+                            "FgColor=#ffffff\n"
+                            "ShadowColor=#000000\n"
+                            "ShowHidden=false\n"
+                            "SortOrder=ascending\n"
+                            "SortColumn=name\n"
+                            'Font="Sans Serif,10,-1,5,50,0,0,0,0,0"\n\n'
+                            "[Volume]\n"
+                            "MountOnStartup=true\n"
+                            "MountRemovable=true\n"
+                            "AutoRun=true\n"
+                        )
+
+            # Fix user permissions for .config
+            run_cmd(f"chroot {mount_dir} chown -R {username}:{username} /home/{username}/.config 2>/dev/null || true", check=False)
+
+            # 4. Elementary icon compatibility symlink
+            icons_dir = f"{mount_dir}/usr/share/icons"
+            if os.path.isdir(icons_dir) and not os.path.exists(f"{icons_dir}/elementary"):
+                run_cmd(f"ln -sf Papirus-Dark {icons_dir}/elementary 2>/dev/null || true", check=False)
+
+            # 5. Rebuild icon caches for clean startup
+            for theme in ["hicolor", "Papirus", "Papirus-Dark", "Adwaita"]:
+                if os.path.isdir(f"{icons_dir}/{theme}"):
+                    run_cmd(f"chroot {mount_dir} gtk-update-icon-cache -f -t /usr/share/icons/{theme} 2>/dev/null || true", check=False)
+
+        # Set GTK dark theme & icon preferences
         gtk_settings_dir = f"{mount_dir}/etc/gtk-3.0"
         os.makedirs(gtk_settings_dir, exist_ok=True)
         gtk_settings_file = f"{gtk_settings_dir}/settings.ini"
-        if not os.path.exists(gtk_settings_file):
-            with open(gtk_settings_file, "w") as f:
-                f.write("[Settings]\ngtk-application-prefer-dark-theme=1\n")
+        with open(gtk_settings_file, "w") as f:
+            f.write(
+                "[Settings]\n"
+                "gtk-theme-name=Adwaita-dark\n"
+                "gtk-icon-theme-name=Papirus-Dark\n"
+                "gtk-font-name=DejaVu Sans 10\n"
+                "gtk-application-prefer-dark-theme=1\n"
+            )
+
+        gtk2_rc_file = f"{mount_dir}/etc/gtk-2.0/gtkrc"
+        os.makedirs(f"{mount_dir}/etc/gtk-2.0", exist_ok=True)
+        with open(gtk2_rc_file, "w") as f:
+            f.write(
+                'gtk-theme-name="Adwaita-dark"\n'
+                'gtk-icon-theme-name="Papirus-Dark"\n'
+                'gtk-font-name="DejaVu Sans 10"\n'
+            )
 
     finally:
         # Cleanly unmount filesystems in reverse order
