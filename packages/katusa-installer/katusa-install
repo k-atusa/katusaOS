@@ -366,11 +366,12 @@ DESKTOP_PROFILES = {
         "packages": (
             "lxqt-desktop sddm sddm-openrc openbox "
             "xorg-server xf86-input-libinput xinit "
-            "mesa-dri-gallium mesa-gles mesa-egl "
+            "mesa-dri-gallium mesa-gles mesa-egl mesa-gl "
             "dbus dbus-openrc dbus-x11 elogind elogind-openrc "
             "eudev eudev-openrc polkit-elogind gvfs udisks2 font-dejavu firefox "
             "papirus-icon-theme adwaita-icon-theme adwaita-xfce-icon-theme breeze-icons "
-            "qt5-qtimageformats gtk-update-icon-cache"
+            "qt5-qtimageformats gtk-update-icon-cache "
+            "xscreensaver-extras xscreensaver-gl-extras"
         ),
         "check_bins": [
             "usr/bin/lxqt-session",
