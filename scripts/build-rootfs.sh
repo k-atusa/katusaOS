@@ -98,7 +98,8 @@ BASE_PACKAGES=(
     grub-efi \
     dialog \
     ncurses \
-    rsync
+    rsync \
+    alpine-conf
 )
 
 # On x86_64, include grub-bios for Legacy BIOS / MBR partition support
@@ -157,6 +158,11 @@ cp "${REPO_ROOT}/configs/os-release" "${ROOTFS_DIR}/etc/os-release"
 cp "${REPO_ROOT}/configs/hostname" "${ROOTFS_DIR}/etc/hostname"
 cp "${REPO_ROOT}/configs/issue" "${ROOTFS_DIR}/etc/issue"
 cp "${REPO_ROOT}/configs/issue" "${ROOTFS_DIR}/etc/issue.net"
+
+# Inject custom GRUB default configuration and disable automatic update-grub trigger
+mkdir -p "${ROOTFS_DIR}/etc/default"
+cp "${REPO_ROOT}/configs/default/grub" "${ROOTFS_DIR}/etc/default/grub"
+cp "${REPO_ROOT}/configs/update-grub.conf" "${ROOTFS_DIR}/etc/update-grub.conf"
 
 # Copy MOTD banner (Alpine prints /etc/motd upon login)
 mkdir -p "${ROOTFS_DIR}/etc"
@@ -275,6 +281,9 @@ echo "root:root" | chpasswd
 adduser -D -s /bin/bash -g "katusa" katusa
 echo "katusa:katusa" | chpasswd
 addgroup katusa wheel
+addgroup katusa audio 2>/dev/null || true
+addgroup katusa video 2>/dev/null || true
+addgroup katusa input 2>/dev/null || true
 
 # Copy skel files to katusa home
 cp -r /etc/skel/. /home/katusa/

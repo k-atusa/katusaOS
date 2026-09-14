@@ -4,7 +4,7 @@
 set -euo pipefail
 
 ARCH="${1:-amd64}"
-IMAGE_SIZE_MB="${IMAGE_SIZE_MB:-4096}"
+IMAGE_SIZE_MB="${IMAGE_SIZE_MB:-8192}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 OUTPUT_DIR="${OUTPUT_DIR:-${REPO_ROOT}/output}"
@@ -80,7 +80,7 @@ chmod 666 "${OUTPUT_DIR}/vmlinuz-${ARCH}" "${OUTPUT_DIR}/initrd-${ARCH}.img" 2>/
 # Step 3: Configure GRUB on rootfs
 echo "[+] Configuring GRUB bootloader on rootfs..."
 mkdir -p "${ROOTFS_DIR}/boot/grub"
-cat << 'EOF' > "${ROOTFS_DIR}/boot/grub/grub.cfg"
+cat << EOF > "${ROOTFS_DIR}/boot/grub/grub.cfg"
 set default=0
 set timeout=3
 
@@ -92,16 +92,21 @@ insmod all_video
 
 menuentry 'katusaOS' {
     search --no-floppy --set=root --label katusa-root
-    linux /boot/vmlinuz-virt root=LABEL=katusa-root rw modules=ext4,virtio_pci,virtio_blk,virtio_gpu console=tty0 console=${CONSOLE} quiet
+    linux /boot/vmlinuz-virt root=LABEL=katusa-root rw modules=ext4,virtio_pci,virtio_blk,virtio_gpu console=${CONSOLE} console=tty0 quiet
     initrd /boot/initramfs-virt
 }
 
 menuentry 'katusaOS (Fallback Recovery)' {
     search --no-floppy --set=root --label katusa-root
-    linux /boot/vmlinuz-virt root=LABEL=katusa-root rw modules=ext4,virtio_pci,virtio_blk,virtio_gpu console=tty0 console=${CONSOLE} single
+    linux /boot/vmlinuz-virt root=LABEL=katusa-root rw modules=ext4,virtio_pci,virtio_blk,virtio_gpu console=${CONSOLE} console=tty0 single
     initrd /boot/initramfs-virt
 }
 EOF
+
+# Ensure /etc/default/grub and /etc/update-grub.conf are present on rootfs
+mkdir -p "${ROOTFS_DIR}/etc/default"
+cp -f "${REPO_ROOT}/configs/default/grub" "${ROOTFS_DIR}/etc/default/grub" 2>/dev/null || true
+cp -f "${REPO_ROOT}/configs/update-grub.conf" "${ROOTFS_DIR}/etc/update-grub.conf" 2>/dev/null || true
 
 # Step 4: Build standalone EFI bootloader binary with embedded early search config
 echo "[+] Generating early GRUB bootstrap config..."
@@ -199,17 +204,17 @@ insmod iso9660
 insmod all_video
 
 menuentry 'Install katusaOS (Live Installer)' {
-    linux /boot/vmlinuz-virt root=LABEL=KATUSA_ISO overlaytmpfs=yes modules=ext4,isofs,virtio_pci,virtio_blk,virtio_gpu,overlay console=tty0 console=${CONSOLE} quiet
+    linux /boot/vmlinuz-virt root=LABEL=KATUSA_ISO overlaytmpfs=yes modules=ext4,isofs,virtio_pci,virtio_blk,virtio_gpu,overlay console=${CONSOLE} console=tty0 quiet
     initrd /boot/initramfs-virt
 }
 
 menuentry 'katusaOS (Live Mode)' {
-    linux /boot/vmlinuz-virt root=LABEL=KATUSA_ISO overlaytmpfs=yes modules=ext4,isofs,virtio_pci,virtio_blk,virtio_gpu,overlay console=tty0 console=${CONSOLE} quiet
+    linux /boot/vmlinuz-virt root=LABEL=KATUSA_ISO overlaytmpfs=yes modules=ext4,isofs,virtio_pci,virtio_blk,virtio_gpu,overlay console=${CONSOLE} console=tty0 quiet
     initrd /boot/initramfs-virt
 }
 
 menuentry 'katusaOS (Debug Verbose Boot)' {
-    linux /boot/vmlinuz-virt root=LABEL=KATUSA_ISO overlaytmpfs=yes modules=ext4,isofs,virtio_pci,virtio_blk,virtio_gpu,overlay console=tty0 console=${CONSOLE}
+    linux /boot/vmlinuz-virt root=LABEL=KATUSA_ISO overlaytmpfs=yes modules=ext4,isofs,virtio_pci,virtio_blk,virtio_gpu,overlay console=${CONSOLE} console=tty0
     initrd /boot/initramfs-virt
 }
 EOF

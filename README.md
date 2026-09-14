@@ -1,7 +1,7 @@
 # katusaOS 🚀
 > **Dedicated Custom Linux Operating System for the Katusa Programming Club**
 
-![katusaOS Banner](https://img.shields.io/badge/katusaOS-v0.1.1--alpha-00ADB5?style=for-the-badge)
+![katusaOS Banner](https://img.shields.io/badge/katusaOS-v0.1.2--alpha-00ADB5?style=for-the-badge)
 
 ![Arch](https://img.shields.io/badge/Architecture-amd64%20%7C%20arm64-brightgreen?style=for-the-badge)
 ![Base](https://img.shields.io/badge/Base-Alpine%20Linux%203.20-0D597F?style=for-the-badge)
@@ -27,7 +27,7 @@
   - `katusa cheat <git|tmux|gdb|qemu>`: Quick command reference and cheat sheets.
   - `katusa help`: Built-in CLI guide.
 - **🎨 Tailored Developer Environment (Branding & Dotfiles)**:
-  - Clean pre-login prompt (`katusaOS 0.1.1-alpha (ttyAMA0)`).
+  - Clean pre-login prompt (`katusaOS 0.1.2-alpha (ttyAMA0)`).
   - Dynamic post-login MOTD with club greeting.
   - Optimized `.zshrc`, `.bashrc`, `.tmux.conf`, and `.vimrc` configurations.
   - Default user: `katusa` (password: `katusa`, passwordless `sudo` privileges).
@@ -82,14 +82,14 @@ Or install manually:
 
 ### 2. Obtain the katusaOS Image (Download or Build)
 
-#### Method A: Download Pre-built Compressed Image from GitHub Releases (Recommended)
-Download the latest `katusaOS-<version>-<arch>.img.xz` and kernel/initrd bundle from the GitHub [Releases](https://github.com/k-atusa/katusaOS/releases) page (~350MB).
+#### Method A: Download Bootable Installer ISO from GitHub Releases (Recommended)
+Download the latest `katusaOS-<version>-<arch>.iso.xz` from the GitHub [Releases](https://github.com/k-atusa/katusaOS/releases) page.
 
 ```bash
-# Download and decompress into the output/ directory (takes ~10 seconds)
+# Download and decompress into the output/ directory
 mkdir -p output
-xz -d -k katusaOS-*-arm64.img.xz
-mv katusaOS-*-arm64.img output/katusaOS-arm64.img
+xz -d katusaOS-*-arm64.iso.xz
+mv katusaOS-*-arm64.iso output/katusaOS-arm64-installer.iso
 ```
 
 #### Method B: Build Locally via Docker
@@ -149,16 +149,25 @@ katusaOS provides a dedicated interactive **Terminal UI Installer (`katusa-insta
    ```bash
    katusa-install
    ```
+   *(or run non-interactively: `katusa-install --target /dev/vda --mode gpt --desktop xfce --yes`)*
 6. The installer TUI will guide you through:
-   - Target disk selection (e.g. `/dev/vda` 64GB)
-   - Partition scheme & bootloader selection:
+   - **Step 1: Target disk selection** (e.g. `/dev/vda` 64GB)
+   - **Step 2: Partition scheme & bootloader selection**:
      - **GPT (UEFI)**: Modern GUID partition table with FAT32 ESP partition and UEFI bootloader.
      - **MBR (Legacy BIOS)**: Classic MS-DOS partition table with active boot flag and MBR BIOS bootloader.
-   - Formatting and copying system files
+   - **Step 3: Desktop Environment selection**:
+     - **Console (CLI Only)** *(Default)*: Minimal, ultra-fast headless developer terminal (No GUI).
+     - **XFCE4 Desktop** *(Recommended)*: Fast, lightweight classic GUI with LightDM display manager and dark theme.
+     - **GNOME Desktop**: Modern, elegant Wayland desktop environment with GDM.
+     - **KDE Plasma**: Feature-rich, highly customizable modern Qt desktop with SDDM.
+     - **LXQt Desktop**: Extremely lightweight Qt-based desktop environment with SDDM.
+   - Formatting partitions and copying base system files
+   - Downloading & configuring selected Desktop Environment and display manager *(if GUI selected, requires active internet)*
    - Generating system configuration and `/etc/fstab`
 7. Once installation finishes:
    - **VM Environment**: Detach/remove the installer ISO from VM settings and reboot.
    - **USB Boot / Physical Drive**: Detach the installation media and reboot.
+   - If a Desktop Environment was selected, the graphical display manager will start automatically upon login!
 
 #### Method 2: Booting the GPT Disk Image Directly in UTM
 1. In UTM, create a Linux VM without an ISO.
@@ -214,10 +223,10 @@ make clean
 
 A GitHub Actions workflow (`.github/workflows/release.yml`) automatically triggers upon publishing a new release:
 1. Checks out the `main` branch.
-2. Builds both `amd64` and `arm64` images in parallel.
-3. Compresses the raw 4GB images using multi-threaded `xz` (~350MB).
+2. Builds both `amd64` and `arm64` bootable installer ISOs in parallel.
+3. Compresses the installer ISOs using multi-threaded `xz` (`katusaOS-<version>-<arch>.iso.xz`).
 4. Generates SHA256 checksums (`.sha256`).
-5. Uploads `katusaOS-<version>-<arch>.img.xz` and kernel bundles directly to the GitHub Release.
+5. Uploads only `katusaOS-<version>-<arch>.iso.xz` and checksums to the GitHub Release.
 
 ---
 
