@@ -160,7 +160,6 @@ katusaOS provides a dedicated interactive **Terminal UI Installer (`katusa-insta
      - **XFCE4 Desktop** *(Recommended)*: Fast, lightweight classic GUI with LightDM display manager and dark theme.
      - **GNOME Desktop**: Modern, elegant Wayland desktop environment with GDM.
      - **KDE Plasma**: Feature-rich, highly customizable modern Qt desktop with SDDM.
-     - **Sway (Wayland)**: Ultra-lightweight i3-compatible tiling Wayland compositor.
      - **LXQt Desktop**: Extremely lightweight Qt-based desktop environment with SDDM.
    - Formatting partitions and copying base system files
    - Downloading & configuring selected Desktop Environment and display manager *(if GUI selected, requires active internet)*

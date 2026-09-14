@@ -219,12 +219,6 @@ SUPPORTED_DESKTOPS = [
         "desc": "Feature-rich, highly customizable modern Qt desktop with SDDM"
     },
     {
-        "id": "sway",
-        "name": "Sway (Wayland)",
-        "tag": "Tiling WM",
-        "desc": "Ultra-lightweight i3-compatible tiling Wayland compositor"
-    },
-    {
         "id": "lxqt",
         "name": "LXQt Desktop",
         "tag": "Lightweight Qt",
@@ -334,29 +328,6 @@ DESKTOP_PROFILES = {
             ("dbus", "default"),
             ("elogind", "default"),
             ("sddm", "default"),
-        ],
-        "remove_services": [
-            ("mdev", "sysinit"),
-        ],
-    },
-    "sway": {
-        "packages": (
-            "sway swaybg swayidle swaylockd foot wmenu xwayland "
-            "seatd seatd-openrc "
-            "mesa-dri-gallium mesa-gles mesa-egl "
-            "dbus dbus-openrc elogind elogind-openrc "
-            "eudev eudev-openrc polkit-elogind font-dejavu firefox"
-        ),
-        "check_bins": [
-            "usr/bin/sway",
-        ],
-        "services": [
-            ("udev", "sysinit"),
-            ("udev-trigger", "sysinit"),
-            ("udev-settle", "sysinit"),
-            ("dbus", "default"),
-            ("elogind", "default"),
-            ("seatd", "default"),
         ],
         "remove_services": [
             ("mdev", "sysinit"),
@@ -505,7 +476,6 @@ def install_desktop_environment(mount_dir, desktop, username="katusa", progress_
         "gnome": 3500,
         "plasma": 3000,
         "xfce": 1800,
-        "sway": 1800,
         "lxqt": 2200,
     }
     required_mb = req_space_map.get(desktop, 1800)
@@ -1647,8 +1617,8 @@ def main():
     parser.add_argument("--target", "-t", help="Target disk path (e.g. /dev/vda, /dev/sda)")
     parser.add_argument("--mode", "--boot-mode", choices=["auto", "gpt", "mbr"], default="auto",
                         help="Partition table and boot mode: gpt (UEFI), mbr (Legacy BIOS), or auto (default: auto)")
-    parser.add_argument("--desktop", "-d", choices=["none", "xfce", "gnome", "plasma", "sway", "lxqt"],
-                        default="none", help="Desktop environment to install: none, xfce, gnome, plasma, sway, lxqt (default: none)")
+    parser.add_argument("--desktop", "-d", choices=["none", "xfce", "gnome", "plasma", "lxqt"],
+                        default="none", help="Desktop environment to install: none, xfce, gnome, plasma, lxqt (default: none)")
     parser.add_argument("--mbr", action="store_true", help="Install using Legacy MBR (msdos) partition table & BIOS bootloader")
     parser.add_argument("--gpt", action="store_true", help="Install using GPT partition table & UEFI bootloader")
     parser.add_argument("--yes", "-y", action="store_true", help="Automatically confirm wiping target disk")
