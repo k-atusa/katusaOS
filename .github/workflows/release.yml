@@ -117,31 +117,26 @@ jobs:
           # Fix permissions on runner temp directory
           sudo chown -R $(id -u):$(id -g) "${ARTIFACT_DIR}"
 
-          # Rename and compress raw disk image using multi-threaded xz
-          RAW_IMG="${ARTIFACT_DIR}/katusaOS-${ARCH}.img"
-          TARGET_IMG="${ARTIFACT_DIR}/katusaOS-${VERSION}-${ARCH}.img"
-          mv "${RAW_IMG}" "${TARGET_IMG}"
-          echo "[+] Compressing ${TARGET_IMG} with xz (multi-threaded)..."
-          xz -T0 -6 -v "${TARGET_IMG}"
+          # Remove raw disk image, kernel, and initrd from release artifacts
+          rm -f "${ARTIFACT_DIR}/katusaOS-${ARCH}.img"
+          rm -f "${ARTIFACT_DIR}/vmlinuz-${ARCH}"
+          rm -f "${ARTIFACT_DIR}/initrd-${ARCH}.img"
 
-          # Rename and compress installer ISO if present
+          # Prepare installer ISO: rename to katusaOS-<version>-<arch>.iso (omitting 'installer')
           RAW_ISO="${ARTIFACT_DIR}/katusaOS-${ARCH}-installer.iso"
-          TARGET_ISO="${ARTIFACT_DIR}/katusaOS-${VERSION}-${ARCH}-installer.iso"
+          TARGET_ISO="${ARTIFACT_DIR}/katusaOS-${VERSION}-${ARCH}.iso"
           if [ -f "${RAW_ISO}" ]; then
             mv "${RAW_ISO}" "${TARGET_ISO}"
-            echo "[+] Compressing ${TARGET_ISO} with xz..."
-            xz -T0 -6 -k -v "${TARGET_ISO}"
+            echo "[+] Compressing ${TARGET_ISO} with xz (multi-threaded)..."
+            xz -T0 -6 -v "${TARGET_ISO}"
+          else
+            echo "[-] Error: Expected ISO file not found at ${RAW_ISO}"
+            exit 1
           fi
 
-          # Generate SHA256 checksums
+          # Generate SHA256 checksum for the .iso.xz artifact
           cd "${ARTIFACT_DIR}"
-          sha256sum "katusaOS-${VERSION}-${ARCH}.img.xz" > "katusaOS-${VERSION}-${ARCH}.img.xz.sha256"
-          if [ -f "katusaOS-${VERSION}-${ARCH}-installer.iso" ]; then
-            sha256sum "katusaOS-${VERSION}-${ARCH}-installer.iso" > "katusaOS-${VERSION}-${ARCH}-installer.iso.sha256"
-          fi
-          if [ -f "katusaOS-${VERSION}-${ARCH}-installer.iso.xz" ]; then
-            sha256sum "katusaOS-${VERSION}-${ARCH}-installer.iso.xz" > "katusaOS-${VERSION}-${ARCH}-installer.iso.xz.sha256"
-          fi
+          sha256sum "katusaOS-${VERSION}-${ARCH}.iso.xz" > "katusaOS-${VERSION}-${ARCH}.iso.xz.sha256"
           cd -
 
           echo "[+] Artifacts for ${{ matrix.arch }}:"
@@ -227,13 +222,7 @@ jobs:
           draft: false
           prerelease: ${{ contains(needs.check-release.outputs.tag, 'alpha') || contains(needs.check-release.outputs.tag, 'beta') || contains(needs.check-release.outputs.tag, 'rc') }}
           files: |
-            release-artifacts/katusaOS-*.img.xz
-            release-artifacts/katusaOS-*.img.xz.sha256
-            release-artifacts/katusaOS-*-installer.iso
-            release-artifacts/katusaOS-*-installer.iso.xz
-            release-artifacts/katusaOS-*-installer.iso.xz.sha256
-            release-artifacts/katusaOS-*-installer.iso.sha256
-            release-artifacts/vmlinuz-*
-            release-artifacts/initrd-*.img
+            release-artifacts/katusaOS-*.iso.xz
+            release-artifacts/katusaOS-*.iso.xz.sha256
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

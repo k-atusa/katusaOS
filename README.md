@@ -82,14 +82,14 @@ Or install manually:
 
 ### 2. Obtain the katusaOS Image (Download or Build)
 
-#### Method A: Download Pre-built Compressed Image from GitHub Releases (Recommended)
-Download the latest `katusaOS-<version>-<arch>.img.xz` and kernel/initrd bundle from the GitHub [Releases](https://github.com/k-atusa/katusaOS/releases) page (~350MB).
+#### Method A: Download Bootable Installer ISO from GitHub Releases (Recommended)
+Download the latest `katusaOS-<version>-<arch>.iso.xz` from the GitHub [Releases](https://github.com/k-atusa/katusaOS/releases) page.
 
 ```bash
-# Download and decompress into the output/ directory (takes ~10 seconds)
+# Download and decompress into the output/ directory
 mkdir -p output
-xz -d -k katusaOS-*-arm64.img.xz
-mv katusaOS-*-arm64.img output/katusaOS-arm64.img
+xz -d katusaOS-*-arm64.iso.xz
+mv katusaOS-*-arm64.iso output/katusaOS-arm64-installer.iso
 ```
 
 #### Method B: Build Locally via Docker
@@ -223,10 +223,10 @@ make clean
 
 A GitHub Actions workflow (`.github/workflows/release.yml`) automatically triggers upon publishing a new release:
 1. Checks out the `main` branch.
-2. Builds both `amd64` and `arm64` images in parallel.
-3. Compresses the raw 4GB images using multi-threaded `xz` (~350MB).
+2. Builds both `amd64` and `arm64` bootable installer ISOs in parallel.
+3. Compresses the installer ISOs using multi-threaded `xz` (`katusaOS-<version>-<arch>.iso.xz`).
 4. Generates SHA256 checksums (`.sha256`).
-5. Uploads `katusaOS-<version>-<arch>.img.xz` and kernel bundles directly to the GitHub Release.
+5. Uploads only `katusaOS-<version>-<arch>.iso.xz` and checksums to the GitHub Release.
 
 ---
 

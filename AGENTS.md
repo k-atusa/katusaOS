@@ -14,7 +14,7 @@
   2. **모든 빌드에 에러가 전혀 없을 때만** GitHub Actions가 자동으로:
      - `main` 브랜치로 merge
      - `vX.Y.Z` 버전 태그 생성
-     - GitHub Release 발행 및 빌드 산출물(img.xz, iso, sha256) 자동 첨부
+     - GitHub Release 발행 및 빌드 산출물(iso.xz, sha256) 자동 첨부
      - `develop` 브랜치로 main 변경 사항을 다시 merge하여 동기화
   3. **빌드 실패 시**: 태그나 Release가 일절 생성되지 않으므로 수동 삭제 작업이 불필요합니다. 버그를 `release/v*`에서 수정하여 다시 push하면 됩니다.
   4. (주의: 빌드 검증 전 수동으로 태그를 생성하거나 push하지 않습니다.)
